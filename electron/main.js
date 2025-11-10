@@ -1,6 +1,11 @@
-const { app, BrowserWindow, Menu } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron');
 const path = require('path');
+const fs = require('fs').promises;
 const isDev = process.env.NODE_ENV === 'development';
+
+// Database backup path
+const MALWA_CRM_ROOT = 'C:/malwa_crm';
+const BACKUP_PATH = path.join(MALWA_CRM_ROOT, 'Data_Base');
 
 // Global error handlers to capture crashes in the main process and make logs
 process.on('uncaughtException', (err) => {
@@ -25,6 +30,7 @@ function createWindow() {
       contextIsolation: true,
       enableRemoteModule: false,
       webSecurity: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
     backgroundColor: '#ffffff',
     show: false,
@@ -167,9 +173,160 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('ready', () => {
+app.on('ready', async () => {
   console.log('Malwa CRM Desktop App Started');
   console.log('Version: 2.0.0');
   console.log('Platform:', process.platform);
   console.log('Electron Version:', process.versions.electron);
+
+  // Create folder structure if it doesn't exist
+  await ensureFolderStructure();
+});
+
+// ==================== File System Operations ====================
+
+/**
+ * Ensure C:/malwa_crm/Data_Base/ folder structure exists
+ */
+async function ensureFolderStructure() {
+  try {
+    await fs.mkdir(MALWA_CRM_ROOT, { recursive: true });
+    await fs.mkdir(BACKUP_PATH, { recursive: true });
+    console.log('✅ Folder structure created:', MALWA_CRM_ROOT);
+  } catch (error) {
+    console.error('❌ Failed to create folder structure:', error);
+  }
+}
+
+/**
+ * Write file to Data_Base folder
+ */
+ipcMain.handle('fs:writeFile', async (event, fileName, content) => {
+  try {
+    await ensureFolderStructure();
+    const filePath = path.join(BACKUP_PATH, fileName);
+    await fs.writeFile(filePath, content, 'utf8');
+    console.log('✅ File saved:', filePath);
+    return { success: true, path: filePath };
+  } catch (error) {
+    console.error('❌ Failed to write file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Read file from Data_Base folder
+ */
+ipcMain.handle('fs:readFile', async (event, fileName) => {
+  try {
+    const filePath = path.join(BACKUP_PATH, fileName);
+    const content = await fs.readFile(filePath, 'utf8');
+    console.log('✅ File read:', filePath);
+    return { success: true, content };
+  } catch (error) {
+    console.error('❌ Failed to read file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * List all backup files in Data_Base folder
+ */
+ipcMain.handle('fs:listFiles', async () => {
+  try {
+    await ensureFolderStructure();
+    const files = await fs.readdir(BACKUP_PATH);
+    const backupFiles = files.filter(f => f.endsWith('.json'));
+
+    const fileDetails = await Promise.all(
+      backupFiles.map(async (fileName) => {
+        const filePath = path.join(BACKUP_PATH, fileName);
+        const stats = await fs.stat(filePath);
+        return {
+          name: fileName,
+          path: filePath,
+          size: stats.size,
+          created: stats.birthtime,
+          modified: stats.mtime
+        };
+      })
+    );
+
+    console.log(`✅ Found ${fileDetails.length} backup files`);
+    return { success: true, files: fileDetails };
+  } catch (error) {
+    console.error('❌ Failed to list files:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Delete backup file
+ */
+ipcMain.handle('fs:deleteFile', async (event, fileName) => {
+  try {
+    const filePath = path.join(BACKUP_PATH, fileName);
+    await fs.unlink(filePath);
+    console.log('✅ File deleted:', filePath);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Failed to delete file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Check if file exists
+ */
+ipcMain.handle('fs:fileExists', async (event, fileName) => {
+  try {
+    const filePath = path.join(BACKUP_PATH, fileName);
+    await fs.access(filePath);
+    return { success: true, exists: true };
+  } catch (error) {
+    return { success: true, exists: false };
+  }
+});
+
+/**
+ * Get backup folder path
+ */
+ipcMain.handle('fs:getBackupPath', async () => {
+  return { success: true, path: BACKUP_PATH };
+});
+
+/**
+ * Open backup folder in file explorer
+ */
+ipcMain.handle('fs:openBackupFolder', async () => {
+  try {
+    await ensureFolderStructure();
+    const { shell } = require('electron');
+    await shell.openPath(BACKUP_PATH);
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Failed to open folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+/**
+ * Get folder size
+ */
+ipcMain.handle('fs:getFolderSize', async () => {
+  try {
+    const files = await fs.readdir(BACKUP_PATH);
+    let totalSize = 0;
+
+    for (const file of files) {
+      const filePath = path.join(BACKUP_PATH, file);
+      const stats = await fs.stat(filePath);
+      totalSize += stats.size;
+    }
+
+    return { success: true, size: totalSize, count: files.length };
+  } catch (error) {
+    console.error('❌ Failed to get folder size:', error);
+    return { success: false, error: error.message };
+  }
 });
