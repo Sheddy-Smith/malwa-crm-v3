@@ -7,7 +7,7 @@ import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import ConfirmModal from "@/components/ui/ConfirmModal";
-import { supabase } from "@/lib/supabase";
+import supabase from "@/lib/supabase";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
 

@@ -7,7 +7,7 @@ import JobReportList from "@/components/jobs/JobReportList";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import { PlusCircle, Save, Printer } from "lucide-react";
 import useAuthStore from "@/store/authStore";
-import { supabase } from "@/lib/supabase";
+import supabase from "@/lib/supabase";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
 

@@ -7,7 +7,7 @@ import { PlusCircle, Trash2, Edit, Save, X } from "lucide-react";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import useAuthStore from "@/store/authStore";
-import { supabase } from "@/lib/supabase";
+import supabase from "@/lib/supabase";
 import { toast } from "sonner";
 
 const InspectionStep = () => {

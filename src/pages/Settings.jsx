@@ -1,17 +1,31 @@
 import { useState, useEffect } from "react";
 import TabbedPage from "@/components/TabbedPage";
 import UserManagementTab from "./settings/UserManagementTab";
-import MyProfileTab from "./settings/MyProfileTab";
-import BranchesTab from "./settings/BranchesTab";
+import CompanyMasterTab from "./settings/CompanyMasterTab";
+import GeneralSettingsTab from "./settings/GeneralSettingsTab";
+import InvoiceSettingsTab from "./settings/InvoiceSettingsTab";
+import InventorySettingsTab from "./settings/InventorySettingsTab";
+import LedgerSettingsTab from "./settings/LedgerSettingsTab";
+import MultiplierSettingsTab from "./settings/MultiplierSettingsTab";
+import SecuritySettingsTab from "./settings/SecuritySettingsTab";
+import BackupSettingsTab from "./settings/BackupSettingsTab";
+import AboutTab from "./settings/AboutTab";
 import AdminPasswordModal from "@/components/AdminPasswordModal";
 import useAuthStore from "@/store/authStore";
 import { useNavigate } from "react-router-dom";
 import { dbOperations } from "@/lib/db";
 
 const allTabs = [
+  { id: "general", label: "General", component: GeneralSettingsTab },
+  { id: "company", label: "Company Master", component: CompanyMasterTab },
+  { id: "invoice", label: "Invoice Settings", component: InvoiceSettingsTab },
+  { id: "inventory", label: "Inventory Settings", component: InventorySettingsTab },
+  { id: "ledger", label: "Ledger Settings", component: LedgerSettingsTab },
+  { id: "multiplier", label: "Multiplier Settings", component: MultiplierSettingsTab },
   { id: "users", label: "User Management", component: UserManagementTab, directorOnly: true },
-  { id: "profile", label: "My Profile", component: MyProfileTab },
-  { id: "branches", label: "Branches", component: BranchesTab, directorOnly: true }
+  { id: "security", label: "Security", component: SecuritySettingsTab },
+  { id: "backup", label: "Backup & Restore", component: BackupSettingsTab },
+  { id: "about", label: "About", component: AboutTab }
 ];
 
 const Settings = () => {
