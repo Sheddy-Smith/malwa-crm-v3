@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fix Ledger Data</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #e53e3e;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #c53030;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .log {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .log div {
+            padding: 3px 0;
+        }
+        .success {
+            color: #38a169;
+        }
+        .error {
+            color: #e53e3e;
+        }
+        .info {
+            color: #3182ce;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Fix Ledger Data - Convert Debit to Credit</h1>
+        <p>This will convert all job sheet entries from DEBIT to CREDIT for vendor and labour ledgers.</p>
+        <p><strong>What it does:</strong></p>
+        <ul>
+            <li>Finds all entries where entry_type = 'job_sheet'</li>
+            <li>Swaps debit_amount to credit_amount</li>
+            <li>Updates vendor/labour balances</li>
+        </ul>
+        
+        <button onclick="fixData()" id="fixBtn">Fix Ledger Data</button>
+        <button onclick="clearLog()">Clear Log</button>
+        
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        const DB_NAME = 'malwa_erp_db';
+        const DB_VERSION = 8;
+        let db;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function openDB() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function getAllEntries(storeName) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([storeName], 'readonly');
+                const store = transaction.objectStore(storeName);
+                const request = store.getAll();
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function updateEntry(storeName, entry) {
+            return new Promise((resolve, reject) => {
+                const transaction = db.transaction([storeName], 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.put(entry);
+                request.onsuccess = () => resolve(request.result);
+                request.onerror = () => reject(request.error);
+            });
+        }
+
+        async function fixData() {
+            const btn = document.getElementById('fixBtn');
+            btn.disabled = true;
+            
+            try {
+                log('Opening database...', 'info');
+                db = await openDB();
+                
+                // Fix Vendor Ledger Entries
+                log('Fetching vendor ledger entries...', 'info');
+                const vendorEntries = await getAllEntries('vendor_ledger_entries');
+                const vendorJobSheetEntries = vendorEntries.filter(e => e.entry_type === 'job_sheet' && e.debit_amount > 0);
+                
+                log(`Found ${vendorJobSheetEntries.length} vendor job sheet entries to fix`, 'info');
+                
+                for (const entry of vendorJobSheetEntries) {
+                    const oldDebit = entry.debit_amount;
+                    entry.credit_amount = entry.debit_amount;
+                    entry.debit_amount = 0;
+                    await updateEntry('vendor_ledger_entries', entry);
+                    log(`✓ Vendor entry ${entry.id}: Moved ₹${oldDebit} from debit to credit`, 'success');
+                }
+                
+                // Fix Labour Ledger Entries
+                log('Fetching labour ledger entries...', 'info');
+                const labourEntries = await getAllEntries('labour_ledger_entries');
+                const labourJobSheetEntries = labourEntries.filter(e => e.entry_type === 'job_sheet' && e.debit_amount > 0);
+                
+                log(`Found ${labourJobSheetEntries.length} labour job sheet entries to fix`, 'info');
+                
+                for (const entry of labourJobSheetEntries) {
+                    const oldDebit = entry.debit_amount;
+                    entry.credit_amount = entry.debit_amount;
+                    entry.debit_amount = 0;
+                    await updateEntry('labour_ledger_entries', entry);
+                    log(`✓ Labour entry ${entry.id}: Moved ₹${oldDebit} from debit to credit`, 'success');
+                }
+                
+                // Update Vendor Balances
+                log('Updating vendor balances...', 'info');
+                const vendors = await getAllEntries('vendors');
+                for (const vendor of vendors) {
+                    const entries = vendorEntries.filter(e => e.vendor_id === vendor.id);
+                    const balance = entries.reduce((sum, e) => sum + (e.debit_amount || 0) - (e.credit_amount || 0), 0);
+                    vendor.current_balance = (vendor.opening_balance || 0) + balance;
+                    await updateEntry('vendors', vendor);
+                    log(`✓ Updated vendor ${vendor.name} balance: ₹${vendor.current_balance}`, 'success');
+                }
+                
+                // Update Labour Balances
+                log('Updating labour balances...', 'info');
+                const labours = await getAllEntries('labour');
+                for (const labour of labours) {
+                    const entries = labourEntries.filter(e => e.labour_id === labour.id);
+                    const balance = entries.reduce((sum, e) => sum + (e.debit_amount || 0) - (e.credit_amount || 0), 0);
+                    labour.current_balance = (labour.opening_balance || 0) + balance;
+                    await updateEntry('labour', labour);
+                    log(`✓ Updated labour ${labour.name} balance: ₹${labour.current_balance}`, 'success');
+                }
+                
+                log('========================================', 'info');
+                log('✅ ALL DATA FIXED SUCCESSFULLY!', 'success');
+                log(`Total vendor entries fixed: ${vendorJobSheetEntries.length}`, 'success');
+                log(`Total labour entries fixed: ${labourJobSheetEntries.length}`, 'success');
+                log('========================================', 'info');
+                log('Please refresh the application to see updated data.', 'info');
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, 'error');
+                console.error(error);
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // Initial log
+        log('Ready to fix ledger data. Click the button to start.', 'info');
+    </script>
+</body>
+</html>
