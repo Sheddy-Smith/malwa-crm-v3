@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Trash2, Edit, Search } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { broadcastDataChange } from '@/utils/dataSync';
 
-const VoucherForm = ({ voucher, onSave, onCancel }) => {
+const VoucherForm = ({ voucher, onSave, onCancel, preselectedPayee }) => {
   const [formData, setFormData] = useState(
     voucher || {
       voucher_date: new Date().toISOString().split('T')[0],
       voucher_no: '',
-      payee_type: 'vendor', // vendor, labour, supplier, other
-      payee_id: '',
+      payee_type: preselectedPayee?.payee_type || 'vendor',
+      payee_id: preselectedPayee?.payee_id || '',
       payee_name: '',
       amount: 0,
       payment_mode: 'cash', // cash, bank, cheque, upi
@@ -30,6 +32,28 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
   useEffect(() => {
     loadPayees();
   }, []);
+
+  // Auto-fill payee name when preselected payee is available
+  useEffect(() => {
+    if (preselectedPayee?.payee_id && !voucher) {
+      const fillPayeeName = async () => {
+        let selectedPayee;
+        if (preselectedPayee.payee_type === 'vendor') {
+          selectedPayee = vendors.find(v => v.id === preselectedPayee.payee_id);
+        } else if (preselectedPayee.payee_type === 'labour') {
+          selectedPayee = labours.find(l => l.id === preselectedPayee.payee_id);
+        } else if (preselectedPayee.payee_type === 'supplier') {
+          selectedPayee = suppliers.find(s => s.id === preselectedPayee.payee_id);
+        }
+        if (selectedPayee) {
+          setFormData(prev => ({ ...prev, payee_name: selectedPayee.name }));
+        }
+      };
+      if (vendors.length > 0 || labours.length > 0 || suppliers.length > 0) {
+        fillPayeeName();
+      }
+    }
+  }, [vendors, labours, suppliers, preselectedPayee, voucher]);
 
   const loadPayees = async () => {
     try {
@@ -297,10 +321,12 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
 };
 
 const Voucher = () => {
+  const location = useLocation();
   const [vouchers, setVouchers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingVoucher, setEditingVoucher] = useState(null);
+  const [preselectedPayee, setPreselectedPayee] = useState(null);
   const [searchFilters, setSearchFilters] = useState({
     date_from: '',
     date_to: '',
@@ -310,6 +336,37 @@ const Voucher = () => {
 
   useEffect(() => {
     loadVouchers();
+    
+    // Check URL parameters for pre-selected payee
+    const params = new URLSearchParams(location.search);
+    const payeeType = params.get('payee_type');
+    const payeeId = params.get('payee_id');
+    
+    if (payeeType && payeeId) {
+      setPreselectedPayee({ payee_type: payeeType, payee_id: payeeId });
+      setIsModalOpen(true); // Auto-open modal when navigating from vendor/labour page
+    }
+  }, [location.search]);
+
+  // Auto-refresh when page becomes visible or focused
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadVouchers();
+      }
+    };
+
+    const handleFocus = () => {
+      loadVouchers();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
   }, []);
 
   const loadVouchers = async () => {
@@ -349,6 +406,43 @@ const Voucher = () => {
 
       if (editingVoucher) {
         await dbOperations.update('vouchers', editingVoucher.id, voucherRecord);
+        
+        // Update associated ledger entry
+        if (voucherData.payee_type === 'vendor' && voucherData.payee_id) {
+          const vendorLedger = await dbOperations.getAll('vendor_ledger_entries');
+          const entry = vendorLedger.find(e => e.reference_id === editingVoucher.id && e.reference_type === 'voucher');
+          if (entry) {
+            await dbOperations.update('vendor_ledger_entries', entry.id, {
+              ...entry,
+              entry_date: voucherData.voucher_date,
+              particulars: voucherData.particulars,
+              credit_amount: parseFloat(voucherData.amount),
+            });
+          }
+        } else if (voucherData.payee_type === 'labour' && voucherData.payee_id) {
+          const labourLedger = await dbOperations.getAll('labour_ledger_entries');
+          const entry = labourLedger.find(e => e.reference_id === editingVoucher.id && e.reference_type === 'voucher');
+          if (entry) {
+            await dbOperations.update('labour_ledger_entries', entry.id, {
+              ...entry,
+              entry_date: voucherData.voucher_date,
+              particulars: voucherData.particulars,
+              credit_amount: parseFloat(voucherData.amount),
+            });
+          }
+        } else if (voucherData.payee_type === 'supplier' && voucherData.payee_id) {
+          const supplierLedger = await dbOperations.getAll('supplier_ledger_entries');
+          const entry = supplierLedger.find(e => e.reference_id === editingVoucher.id && e.reference_type === 'voucher');
+          if (entry) {
+            await dbOperations.update('supplier_ledger_entries', entry.id, {
+              ...entry,
+              entry_date: voucherData.voucher_date,
+              particulars: voucherData.particulars,
+              credit_amount: parseFloat(voucherData.amount),
+            });
+          }
+        }
+        
         toast.success('Voucher updated successfully');
       } else {
         await dbOperations.insert('vouchers', voucherRecord);
@@ -402,6 +496,13 @@ const Voucher = () => {
         }
 
         toast.success('Voucher saved successfully');
+        
+        // Broadcast data change
+        broadcastDataChange('voucher', editingVoucher ? 'updated' : 'created', {
+          voucher: voucherRecord,
+          payee_type: voucherData.payee_type,
+          payee_id: voucherData.payee_id
+        });
       }
 
       setIsModalOpen(false);
@@ -417,8 +518,37 @@ const Voucher = () => {
     if (!confirm('Are you sure you want to delete this voucher?')) return;
 
     try {
+      const voucher = vouchers.find(v => v.id === id);
+      
+      // Delete the voucher
       await dbOperations.delete('vouchers', id);
-      toast.success('Voucher deleted successfully');
+      
+      // Delete associated ledger entries
+      if (voucher) {
+        if (voucher.payee_type === 'vendor') {
+          const vendorLedger = await dbOperations.getAll('vendor_ledger_entries');
+          const entry = vendorLedger.find(e => e.reference_id === id && e.reference_type === 'voucher');
+          if (entry) await dbOperations.delete('vendor_ledger_entries', entry.id);
+        } else if (voucher.payee_type === 'labour') {
+          const labourLedger = await dbOperations.getAll('labour_ledger_entries');
+          const entry = labourLedger.find(e => e.reference_id === id && e.reference_type === 'voucher');
+          if (entry) await dbOperations.delete('labour_ledger_entries', entry.id);
+        } else if (voucher.payee_type === 'supplier') {
+          const supplierLedger = await dbOperations.getAll('supplier_ledger_entries');
+          const entry = supplierLedger.find(e => e.reference_id === id && e.reference_type === 'voucher');
+          if (entry) await dbOperations.delete('supplier_ledger_entries', entry.id);
+        }
+      }
+      
+      toast.success('Voucher and related entries deleted successfully');
+      
+      // Broadcast data change
+      broadcastDataChange('voucher', 'deleted', {
+        id: id,
+        payee_type: voucher?.payee_type,
+        payee_id: voucher?.payee_id
+      });
+      
       loadVouchers();
     } catch (error) {
       console.error('Error deleting voucher:', error);
@@ -468,6 +598,7 @@ const Voucher = () => {
           <Button
             onClick={() => {
               setEditingVoucher(null);
+              setPreselectedPayee(null);
               setIsModalOpen(true);
             }}
             variant="primary"
@@ -653,7 +784,9 @@ const Voucher = () => {
           onCancel={() => {
             setIsModalOpen(false);
             setEditingVoucher(null);
+            setPreselectedPayee(null);
           }}
+          preselectedPayee={preselectedPayee}
         />
       </Modal>
     </div>
@@ -661,3 +794,4 @@ const Voucher = () => {
 };
 
 export default Voucher;
+export { VoucherForm };

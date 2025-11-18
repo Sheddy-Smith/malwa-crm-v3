@@ -550,7 +550,7 @@ const numberToWords = (num) => {
   }
   
   const crores = Math.floor(num / 10000000);
-  const remainder = num % 10000000;
+  let remainder = num % 10000000;
   let result = convertLessThanThousand(crores) + ' Crore';
   if (remainder >= 100000) {
     const lakhs = Math.floor(remainder / 100000);

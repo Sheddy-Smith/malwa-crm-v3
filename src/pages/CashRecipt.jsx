@@ -133,6 +133,7 @@ const CashRecipt = () => {
           <thead className="bg-gray-100">
             <tr>
               <th className="border p-2">Name</th>
+              <th className="border p-2">Vehicle No</th>
               <th className="border p-2">Purpose</th>
               <th className="border p-2">Payment Type</th>
               <th className="border p-2">Amount (₹)</th>
@@ -145,6 +146,7 @@ const CashRecipt = () => {
             {filteredReceipts.map((r) => (
               <tr key={r.id} className="text-center hover:bg-gray-50">
                 <td className="border p-2">{r.name}</td>
+                <td className="border p-2">{r.vehicleNo || 'N/A'}</td>
                 <td className="border p-2">{r.purpose}</td>
                 <td className="border p-2">{r.paymentType}</td>
                 <td className="border p-2">₹{r.amount}</td>
@@ -169,7 +171,7 @@ const CashRecipt = () => {
 
             {filteredReceipts.length === 0 && (
               <tr>
-                <td colSpan="7" className="text-gray-500 p-4">
+                <td colSpan="8" className="text-gray-500 p-4">
                   No receipts available.
                 </td>
               </tr>
@@ -177,7 +179,7 @@ const CashRecipt = () => {
 
             {filteredReceipts.length > 0 && (
               <tr className="bg-gray-200 font-semibold text-center">
-                <td colSpan="3" className="border p-2 text-right">
+                <td colSpan="4" className="border p-2 text-right">
                   Total:
                 </td>
                 <td className="border p-2">₹{total}</td>

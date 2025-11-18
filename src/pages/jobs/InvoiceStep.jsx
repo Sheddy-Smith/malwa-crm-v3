@@ -19,6 +19,134 @@ import { createLedgerEntry } from "@/utils/dataFlow";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
 
+// Cash Receipt Modal Component
+const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName, maxAmount }) => {
+  const [formData, setFormData] = useState({
+    name: customerName || "",
+    purpose: "Payment for Invoice",
+    paymentType: "Cash",
+    amount: "",
+    status: "Received",
+    date: new Date().toISOString().split('T')[0],
+  });
+
+  useEffect(() => {
+    if (customerName) {
+      setFormData(prev => ({ ...prev, name: customerName }));
+    }
+  }, [customerName]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    if (maxAmount !== undefined && parseFloat(formData.amount) > maxAmount) {
+      toast.error(`Amount cannot exceed balance due: ₹${maxAmount.toFixed(2)}`);
+      return;
+    }
+    onSubmit(formData);
+    setFormData({
+      name: customerName || "",
+      purpose: "Payment for Invoice",
+      paymentType: "Cash",
+      amount: "",
+      status: "Received",
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: customerName || "",
+      purpose: "Payment for Invoice",
+      paymentType: "Cash",
+      amount: "",
+      status: "Received",
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Cash Receipt">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Customer Name *</label>
+          <input
+            type="text"
+            value={formData.name}
+            readOnly
+            className="w-full p-2 border rounded bg-gray-100 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Purpose</label>
+          <input
+            type="text"
+            value={formData.purpose}
+            onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Payment Type</label>
+            <select
+              value={formData.paymentType}
+              onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Online">Online</option>
+              <option value="Cheque">Cheque</option>
+              <option value="UPI">UPI</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Amount (₹) *</label>
+            <input
+              type="number"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              placeholder="Enter amount"
+              step="0.01"
+              min="0"
+              required
+            />
+            {maxAmount !== undefined && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Max: ₹{maxAmount.toFixed(2)}</p>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Date</label>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 border-t dark:border-gray-600">
+          <Button type="button" variant="secondary" onClick={() => { resetForm(); onClose(); }}>
+            Cancel
+          </Button>
+          <Button type="submit">
+            Submit Receipt
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
 const InvoiceStep = () => {
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
@@ -26,6 +154,7 @@ const InvoiceStep = () => {
   const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "" });
   const [customers, setCustomers] = useState([]);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [isCashReceiptModalOpen, setIsCashReceiptModalOpen] = useState(false);
 
   useEffect(() => {
     loadRecords();
@@ -102,6 +231,74 @@ const InvoiceStep = () => {
       toast.error('Failed to add customer');
     }
   };
+
+  const handleCashReceiptSubmit = async (receiptData) => {
+    try {
+      if (!customer) {
+        toast.error('Please select a customer first');
+        return;
+      }
+
+      const amount = parseFloat(receiptData.amount) || 0;
+
+      // Create ledger entry for cash receipt
+      const ledgerEntry = {
+        customer_id: customer,
+        entry_date: receiptData.date,
+        type: 'payment',
+        description: `Cash Receipt - ${receiptData.purpose}`,
+        debit: 0,
+        credit: amount,
+        reference_type: 'invoice',
+        reference_id: null, // Will be updated when invoice is saved
+        payment_type: receiptData.paymentType,
+        created_at: new Date().toISOString()
+      };
+
+      await dbOperations.insert('customer_ledger_entries', ledgerEntry);
+      
+      // Save to cash receipts list (for Accounts/Cash Receipt page)
+      const cashReceipts = JSON.parse(localStorage.getItem('cashReceipts') || '[]');
+      const newReceipt = {
+        id: Date.now(),
+        name: selectedCustomerDetails?.name || receiptData.name,
+        vehicleNo: jobCtx.vehicleNo || 'N/A',
+        purpose: receiptData.purpose,
+        paymentType: receiptData.paymentType,
+        amount: amount,
+        status: 'Received',
+        date: receiptData.date,
+        source: 'invoice'
+      };
+      cashReceipts.push(newReceipt);
+      localStorage.setItem('cashReceipts', JSON.stringify(cashReceipts));
+      
+      // Update payment amount - add to existing payment
+      setPaymentAmount(prev => {
+        const newAmount = prev + amount;
+        
+        // Save to localStorage per vehicle so it persists on reload
+        if (jobCtx.vehicleNo) {
+          try {
+            const savedPayments = JSON.parse(localStorage.getItem('invoicePaymentAmounts') || '{}');
+            savedPayments[jobCtx.vehicleNo] = newAmount;
+            localStorage.setItem('invoicePaymentAmounts', JSON.stringify(savedPayments));
+          } catch (e) {
+            console.error('Failed to save payment amount:', e);
+          }
+        }
+        
+        return newAmount;
+      });
+      
+      toast.success('Cash receipt recorded successfully');
+      setIsCashReceiptModalOpen(false);
+    } catch (error) {
+      console.error('Error recording cash receipt:', error);
+      toast.error('Failed to record cash receipt');
+    }
+  };
+
   // Job Sheet data (static)
   const jobSheetEstimate = JSON.parse(localStorage.getItem("jobSheetEstimate") || "[]");
   const extraWork = JSON.parse(localStorage.getItem("extraWork") || "[]");
@@ -146,8 +343,73 @@ const InvoiceStep = () => {
   const [selectedCustomerDetails, setSelectedCustomerDetails] = useState(null);
   const [roundOff, setRoundOff] = useState(0);
   const [paymentAmount, setPaymentAmount] = useState(0);
+  const [discount, setDiscount] = useState(0);
+  const [advancePayment, setAdvancePayment] = useState(0);
 
-  const discount = parseFloat(localStorage.getItem("estimateDiscount") || 0);
+  useEffect(() => {
+    // Load from estimate context
+    try {
+      const estimateContext = localStorage.getItem("estimateContext");
+      if (estimateContext) {
+        const ctx = JSON.parse(estimateContext);
+        setDiscount(ctx.discount || 0);
+        const advPayment = ctx.advancePayment || 0;
+        setAdvancePayment(advPayment);
+        setRoundOff(ctx.roundOff || 0);
+      } else {
+        // Fallback to old method
+        setDiscount(parseFloat(localStorage.getItem("estimateDiscount")) || 0);
+        const advPayment = parseFloat(localStorage.getItem("estimateAdvancePayment")) || 0;
+        setAdvancePayment(advPayment);
+        setRoundOff(parseFloat(localStorage.getItem("estimateRoundOff")) || 0);
+      }
+    } catch (e) {
+      console.error('Failed to load estimate context:', e);
+    }
+  }, []);
+
+  // Load saved payment amount for this specific vehicle
+  useEffect(() => {
+    if (jobCtx.vehicleNo) {
+      try {
+        const savedPayments = JSON.parse(localStorage.getItem('invoicePaymentAmounts') || '{}');
+        const savedAmount = savedPayments[jobCtx.vehicleNo];
+        if (savedAmount !== undefined) {
+          setPaymentAmount(savedAmount);
+        } else {
+          // Default to advance payment if no saved payment for this vehicle
+          setPaymentAmount(advancePayment);
+        }
+      } catch (e) {
+        console.error('Failed to load payment amount:', e);
+        setPaymentAmount(advancePayment);
+      }
+    }
+  }, [jobCtx.vehicleNo, advancePayment]);
+
+  // Load jobContext and auto-select customer
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('jobsContext');
+      if (raw) {
+        const ctx = JSON.parse(raw);
+        setJobCtx(ctx);
+        
+        // Auto-select customer based on partyName
+        if (ctx.partyName && customers.length > 0) {
+          const matchingCustomer = customers.find(c => 
+            c.name.toLowerCase() === ctx.partyName.toLowerCase()
+          );
+          if (matchingCustomer) {
+            setCustomer(matchingCustomer.id);
+            setSelectedCustomerDetails(matchingCustomer);
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load job context:', e);
+    }
+  }, [customers]);
   
   // Convert number to words
   const numberToWords = (num) => {
@@ -192,7 +454,9 @@ const InvoiceStep = () => {
   
   const grandTotal = subTotal + gstAmount;
   const totalAfterDiscount = grandTotal - discount;
-  const finalTotal = totalAfterDiscount + parseFloat(roundOff || 0);
+  const totalWithRoundOff = totalAfterDiscount + parseFloat(roundOff || 0);
+  const finalTotal = totalWithRoundOff; // Grand Total (before advance payment)
+  const balanceDue = finalTotal - advancePayment; // Balance after advance payment
 
   // PDF download
   const handleSavePDF = () => {
@@ -495,14 +759,32 @@ const handleSaveInvoice = async () => {
 
           <div>
             <label className="text-xs font-medium">Payment Received (₹)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={paymentAmount}
-              onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
-              className="w-full border p-1.5 rounded mt-1 text-sm"
-              placeholder="Amount"
-            />
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={paymentAmount}
+                  readOnly
+                  className="w-full border p-1.5 rounded mt-1 text-sm bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
+                  placeholder="Amount"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsCashReceiptModalOpen(true)}
+                disabled={!customer}
+                className="mt-1 px-3 py-1.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 font-bold text-lg disabled:opacity-50 border rounded bg-white dark:bg-gray-800 cursor-pointer disabled:cursor-not-allowed"
+                style={{
+                  textShadow: '1px 1px 2px rgba(0,0,0,0.3)',
+                  filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))',
+                  minWidth: '45px'
+                }}
+                title="Record Cash Receipt"
+              >
+                ₹
+              </button>
+            </div>
             <div className="text-xs text-gray-500 mt-0.5">
               Due: ₹{(finalTotal - paymentAmount).toFixed(2)}
             </div>
@@ -728,6 +1010,14 @@ const handleSaveInvoice = async () => {
           onCancel={() => setShowCustomerModal(false)}
         />
       </Modal>
+
+      <CashReceiptModal
+        isOpen={isCashReceiptModalOpen}
+        onClose={() => setIsCashReceiptModalOpen(false)}
+        onSubmit={handleCashReceiptSubmit}
+        customerName={selectedCustomerDetails?.name || ''}
+        maxAmount={finalTotal - paymentAmount}
+      />
     </div>
   );
 };

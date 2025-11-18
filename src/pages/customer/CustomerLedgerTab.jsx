@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 import jsPDF from 'jspdf';
+import { subscribeToEntity } from '@/utils/dataSync';
 
 const CustomerLedgerTab = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -33,6 +34,59 @@ const CustomerLedgerTab = () => {
       setLedgerEntries([]);
       setSelectedCustomer(null);
     }
+  }, [selectedCustomerId, startDate, endDate]);
+
+  // Auto-refresh when page becomes visible or focused
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && selectedCustomerId) {
+        fetchLedgerData();
+        loadSelectedCustomer();
+      }
+    };
+
+    const handleFocus = () => {
+      if (selectedCustomerId) {
+        fetchLedgerData();
+        loadSelectedCustomer();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [selectedCustomerId, startDate, endDate]);
+
+  // Listen for cash receipt changes from Accounts module
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('cash_receipt', ({ action, data }) => {
+      console.log('[CustomerLedger] Cash receipt event received:', action, data);
+      if (data?.customer_id === selectedCustomerId) {
+        console.log('[CustomerLedger] Cash receipt change detected for current customer, refreshing...');
+        // Immediate refresh
+        setTimeout(() => {
+          fetchLedgerData();
+          loadSelectedCustomer();
+        }, 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedCustomerId]);
+
+  // Add polling for real-time updates every 5 seconds
+  useEffect(() => {
+    if (!selectedCustomerId) return;
+
+    const pollInterval = setInterval(() => {
+      fetchLedgerData();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
   }, [selectedCustomerId, startDate, endDate]);
 
   const fetchCustomers = async () => {

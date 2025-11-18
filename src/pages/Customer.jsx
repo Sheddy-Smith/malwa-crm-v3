@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import TabbedPage from '@/components/TabbedPage';
 import CustomerDetailsTab from './customer/CustomerDetailsTab';
 import CustomerLedgerTab from './customer/CustomerLedgerTab';
-import SalesHistoryTab from './customer/SalesHistoryTab';
+import LeadsTab from './customer/LeadsTab';
 import Button from '@/components/ui/Button';
 import { PlusCircle } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
@@ -18,10 +18,29 @@ const CustomerForm = ({ onSave, onCancel }) => {
         gstin: '',
         credit_limit: 0,
         credit_days: 30,
-        opening_balance: 0
+        opening_balance: 0,
+        vehicles: []
     });
+    const [vehicleInput, setVehicleInput] = useState('');
 
     const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+
+    const handleAddVehicle = () => {
+        if (vehicleInput.trim()) {
+            setFormData(prev => ({
+                ...prev,
+                vehicles: [...(prev.vehicles || []), vehicleInput.trim()]
+            }));
+            setVehicleInput('');
+        }
+    };
+
+    const handleRemoveVehicle = (index) => {
+        setFormData(prev => ({
+            ...prev,
+            vehicles: prev.vehicles.filter((_, i) => i !== index)
+        }));
+    };
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -88,6 +107,31 @@ const CustomerForm = ({ onSave, onCancel }) => {
                 />
             </div>
 
+            <div>
+                <label className="block text-sm font-medium mb-1 dark:text-dark-text">Vehicles</label>
+                <div className="flex gap-2">
+                    <input 
+                        type="text" 
+                        value={vehicleInput} 
+                        onChange={(e) => setVehicleInput(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddVehicle())}
+                        placeholder="Vehicle Number (e.g., MP 09 HH 2550)"
+                        className="flex-1 p-2 border rounded-lg bg-transparent dark:border-gray-600 focus:ring-2 focus:ring-brand-red dark:text-dark-text" 
+                    />
+                    <Button type="button" onClick={handleAddVehicle}>Add</Button>
+                </div>
+                {formData.vehicles && formData.vehicles.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                        {formData.vehicles.map((vehicle, index) => (
+                            <span key={index} className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 rounded-full text-sm">
+                                {vehicle}
+                                <button type="button" onClick={() => handleRemoveVehicle(index)} className="hover:text-red-600">×</button>
+                            </span>
+                        ))}
+                    </div>
+                )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
                 <div>
                     <label className="block text-sm font-medium mb-1 dark:text-dark-text">Credit Limit (₹)</label>
@@ -140,8 +184,8 @@ const CustomerForm = ({ onSave, onCancel }) => {
 
 const tabs = [
   { id: 'details', label: 'Customer Details', component: CustomerDetailsTab },
+  { id: 'leads', label: 'Leads', component: LeadsTab },
   { id: 'ledger', label: 'Customer Ledger', component: CustomerLedgerTab },
-  { id: 'sales', label: 'Sales History', component: SalesHistoryTab },
 ];
 
 const Customer = () => {

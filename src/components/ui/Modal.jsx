@@ -7,6 +7,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
     md: 'max-w-md',
     lg: 'max-w-lg',
     xl: 'max-w-3xl',
+    xxl: 'max-w-6xl',
   }
   return (
     <AnimatePresence>

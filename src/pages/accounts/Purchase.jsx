@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Trash2, Plus, Eye, Edit, Printer, Download } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { broadcastDataChange } from '@/utils/dataSync';
 
 const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
   const [suppliers, setSuppliers] = useState([]);
@@ -475,6 +476,27 @@ const Purchase = () => {
     loadSuppliers();
   }, []);
 
+  // Auto-refresh when page becomes visible or focused
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadPurchases();
+      }
+    };
+
+    const handleFocus = () => {
+      loadPurchases();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   const loadSuppliers = async () => {
     try {
       const data = await dbOperations.getAll('suppliers');
@@ -697,6 +719,14 @@ const Purchase = () => {
       } else {
         toast.success(`Purchase invoice saved successfully! ${purchaseData.materials.length} materials added to stock.`);
       }
+      
+      // Broadcast data change to supplier ledger
+      broadcastDataChange('purchase', isEditing ? 'updated' : 'created', {
+        purchase_id: purchaseId,
+        supplier_id: purchaseData.supplier_id,
+        invoice_no: purchaseData.invoice_no,
+        amount: purchaseData.total_amount
+      });
       
       setShowForm(false);
       setEditingInvoice(null);

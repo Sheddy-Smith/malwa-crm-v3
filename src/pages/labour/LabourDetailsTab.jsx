@@ -6,20 +6,39 @@ import Modal from '@/components/ui/Modal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
 import { Edit, Trash2, Download, Printer, Search } from 'lucide-react';
+import { dbOperations } from '@/lib/db';
 
 const LabourForm = ({ labour, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
-    labour || {
+    labour ? {
+      ...labour,
+      hourly_rate: labour.hourly_rate || (labour.daily_rate / 9)
+    } : {
       name: '',
       phone: '',
       skill_type: '',
       daily_rate: 0,
+      hourly_rate: 0,
       address: '',
+      opening_balance: 0,
     }
   );
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    
+    // If daily_rate changes, auto-calculate hourly_rate
+    if (name === 'daily_rate') {
+      const dailyRate = parseFloat(value) || 0;
+      const hourlyRate = dailyRate / 9; // Divide by 9 hours
+      setFormData({ 
+        ...formData, 
+        daily_rate: dailyRate,
+        hourly_rate: hourlyRate
+      });
+    } else {
+      setFormData({ ...formData, [name]: value });
+    }
   };
 
   const handleSubmit = (e) => {
@@ -93,6 +112,11 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
           required
         />
+        {formData.daily_rate > 0 && (
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Hourly Rate: ₹{((formData.daily_rate || 0) / 9).toFixed(2)}/hr (9 hours basis)
+          </p>
+        )}
       </div>
 
       <div>
@@ -106,6 +130,23 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
           rows="2"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
         />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Opening Balance (₹)
+        </label>
+        <input
+          type="number"
+          name="opening_balance"
+          value={formData.opening_balance || 0}
+          onChange={handleChange}
+          step="0.01"
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Initial balance for this labour (positive = amount owed to labour, negative = advance given)
+        </p>
       </div>
 
       <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
@@ -125,10 +166,46 @@ const LabourDetailsTab = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [labourToDelete, setLabourToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [labourBalances, setLabourBalances] = useState({});
 
   useEffect(() => {
     fetchLabour();
   }, [fetchLabour]);
+
+  // Fetch and calculate net balance for all labour (same as Weekly Attendance Card Net Balance)
+  useEffect(() => {
+    const calculateBalances = async () => {
+      if (!labours || labours.length === 0) return;
+      
+      try {
+        const [allAttendance, allVouchers] = await Promise.all([
+          dbOperations.getAll('labour_attendance'),
+          dbOperations.getAll('vouchers')
+        ]);
+        
+        const balances = {};
+        
+        labours.forEach(labour => {
+          // Calculate total earnings from attendance (all time)
+          const labourAttendance = allAttendance.filter(a => a.labour_id === labour.id);
+          const totalEarnings = labourAttendance.reduce((sum, a) => sum + (parseFloat(a.payment_amount) || 0), 0);
+          
+          // Calculate total payments from vouchers (all time)
+          const labourVouchers = allVouchers.filter(v => v.payee_type === 'labour' && v.payee_id === labour.id);
+          const totalPayments = labourVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
+          
+          // Net Balance = Total Earnings - Total Payments (ignoring old ledger entries)
+          balances[labour.id] = totalEarnings - totalPayments;
+        });
+        
+        setLabourBalances(balances);
+      } catch (error) {
+        console.error('Error calculating balances:', error);
+      }
+    };
+    
+    calculateBalances();
+  }, [labours]);
 
   const handleEdit = (labour) => {
     setEditingLabour(labour);
@@ -276,16 +353,21 @@ const LabourDetailsTab = () => {
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{l.skill_type || '-'}</td>
                     <td className="p-3 text-right text-gray-900 dark:text-dark-text font-medium">
                       ₹{parseFloat(l.daily_rate || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      <span className="text-xs text-gray-500 dark:text-gray-400 block">
+                        (₹{((l.daily_rate || 0) / 9).toFixed(2)}/hr)
+                      </span>
                     </td>
                     <td className="p-3 text-right">
                       <span
                         className={`font-medium ${
-                          parseFloat(l.current_balance || 0) > 0
+                          (labourBalances[l.id] || 0) > 0
+                            ? 'text-green-600 dark:text-green-400'
+                            : (labourBalances[l.id] || 0) < 0
                             ? 'text-red-600 dark:text-red-400'
-                            : 'text-green-600 dark:text-green-400'
+                            : 'text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        ₹{parseFloat(l.current_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{Math.abs(labourBalances[l.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
                     <td className="p-3 text-right">

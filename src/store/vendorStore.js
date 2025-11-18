@@ -127,6 +127,7 @@ const useVendorStore = create((set, get) => ({
         serviceType: updatedVendor.serviceType,
         vendor_type: updatedVendor.vendor_type,
         credit_limit: updatedVendor.credit_limit,
+        opening_balance: updatedVendor.opening_balance || 0,
       });
 
       set((state) => ({

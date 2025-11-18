@@ -1,5 +1,5 @@
 const DB_NAME = 'malwa_erp_db';
-const DB_VERSION = 8; // v8: Added purchase_challan_items store
+const DB_VERSION = 9; // v9: Added labour_attendance and weekly_balances stores
 
 let db = null;
 
@@ -25,6 +25,8 @@ const STORES = {
   vendor_ledger_entries: 'id',
   labour: 'id',
   labour_ledger_entries: 'id',
+  labour_attendance: 'id',
+  weekly_balances: 'id',
   suppliers: 'id',
   supplier_ledger_entries: 'id',
   inventory_categories: 'id',
@@ -33,7 +35,6 @@ const STORES = {
   vouchers: 'id',
   gst_ledger: 'id',
   purchase_challans: 'id',
-  purchase_challan_items: 'id',
   sell_challans: 'id',
   branches: 'id',
   profiles: 'id',
@@ -91,14 +92,42 @@ export const initDB = () => {
     request.onupgradeneeded = (event) => {
       const database = event.target.result;
       const upgradeTxn = event.target.transaction;
+      const oldVersion = event.oldVersion;
 
       Object.entries(STORES).forEach(([storeName, keyPath]) => {
+        let objectStore;
+        
         if (!database.objectStoreNames.contains(storeName)) {
-          const objectStore = database.createObjectStore(storeName, {
+          objectStore = database.createObjectStore(storeName, {
             keyPath,
             autoIncrement: false
           });
+        } else {
+          // For existing stores, get them from transaction
+          objectStore = upgradeTxn.objectStore(storeName);
+        }
 
+        // Add indexes for vendor_ledger_entries and labour_ledger_entries if upgrading from v7
+        if (oldVersion < 8) {
+          if (storeName === 'vendor_ledger_entries') {
+            if (!objectStore.indexNames.contains('vendor_id')) {
+              objectStore.createIndex('vendor_id', 'vendor_id', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('entry_date')) {
+              objectStore.createIndex('entry_date', 'entry_date', { unique: false });
+            }
+          } else if (storeName === 'labour_ledger_entries') {
+            if (!objectStore.indexNames.contains('labour_id')) {
+              objectStore.createIndex('labour_id', 'labour_id', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('entry_date')) {
+              objectStore.createIndex('entry_date', 'entry_date', { unique: false });
+            }
+          }
+        }
+
+        // Create indexes for new stores
+        if (!database.objectStoreNames.contains(storeName)) {
           if (storeName === 'customers') {
             objectStore.createIndex('phone', 'phone', { unique: false });
             objectStore.createIndex('email', 'email', { unique: false });
@@ -119,11 +148,17 @@ export const initDB = () => {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('name', 'name', { unique: false });
             objectStore.createIndex('serviceType', 'serviceType', { unique: false });
+          } else if (storeName === 'vendor_ledger_entries') {
+            objectStore.createIndex('vendor_id', 'vendor_id', { unique: false });
+            objectStore.createIndex('entry_date', 'entry_date', { unique: false });
           } else if (storeName === 'labour') {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('technicianId', 'technicianId', { unique: false });
             objectStore.createIndex('employeeId', 'employeeId', { unique: false });
             objectStore.createIndex('vendorId', 'vendorId', { unique: false });
+          } else if (storeName === 'labour_ledger_entries') {
+            objectStore.createIndex('labour_id', 'labour_id', { unique: false });
+            objectStore.createIndex('entry_date', 'entry_date', { unique: false });
           } else if (storeName === 'suppliers') {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('name', 'name', { unique: false });
@@ -202,9 +237,6 @@ export const initDB = () => {
             objectStore.createIndex('purchaseId', 'purchaseId', { unique: false });
             objectStore.createIndex('supplierId', 'supplierId', { unique: false });
             objectStore.createIndex('date', 'date', { unique: false });
-          } else if (storeName === 'purchase_challan_items') {
-            objectStore.createIndex('challan_id', 'challan_id', { unique: false });
-            objectStore.createIndex('category_id', 'category_id', { unique: false });
           } else if (storeName === 'payments') {
             objectStore.createIndex('invoiceId', 'invoiceId', { unique: false });
             objectStore.createIndex('payeeId', 'payeeId', { unique: false });

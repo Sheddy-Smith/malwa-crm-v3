@@ -113,6 +113,7 @@ const useLabourStore = create((set, get) => ({
         daily_rate: updatedLabour.daily_rate,
         is_contractor: updatedLabour.is_contractor,
         vendor_id: updatedLabour.vendor_id,
+        opening_balance: updatedLabour.opening_balance || 0,
       });
 
       set((state) => ({

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import TabbedPage from '@/components/TabbedPage';
 import LabourDetailsTab from './labour/LabourDetailsTab';
 import LabourLedgerTab from './labour/LabourLedgerTab';
+import LabourLedgerView from './labour/LabourLedgerView';
 import useLabourStore from '@/store/labourStore';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
@@ -13,9 +14,11 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
     labour || {
       name: '',
       phone: '',
-      skill_type: '',
-      daily_rate: 0,
       address: '',
+      aadhaar_number: '',
+      skill_type: '',
+      hourly_rate: 0,
+      daily_rate: 0,
     }
   );
 
@@ -25,18 +28,18 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.name || !formData.daily_rate) {
-      toast.error('Name and Rate are required.');
+    if (!formData.name) {
+      toast.error('Employee name is required.');
       return;
     }
-    if (!formData.skill_type) {
-      toast.error('Skill/Trade is required.');
+    if (!formData.daily_rate && !formData.hourly_rate) {
+      toast.error('Either hourly rate or daily rate is required.');
       return;
     }
     try {
       await onSave(formData);
     } catch (error) {
-      toast.error('Failed to save labour');
+      toast.error('Failed to save employee');
     }
   };
 
@@ -71,7 +74,35 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Skill/Trade *
+          Address
+        </label>
+        <textarea
+          name="address"
+          value={formData.address}
+          onChange={handleChange}
+          rows="2"
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Aadhaar Number
+        </label>
+        <input
+          type="text"
+          name="aadhaar_number"
+          value={formData.aadhaar_number}
+          onChange={handleChange}
+          placeholder="XXXX XXXX XXXX"
+          maxLength="14"
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Skill/Trade
         </label>
         <input
           type="text"
@@ -80,24 +111,40 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
           onChange={handleChange}
           placeholder="e.g., Welder, Painter, Mechanic"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
-          required
         />
       </div>
 
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Rate (₹ per day/hr) *
-        </label>
-        <input
-          type="number"
-          name="daily_rate"
-          value={formData.daily_rate}
-          onChange={handleChange}
-          step="0.01"
-          min="0"
-          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
-          required
-        />
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Hourly Rate (₹/hr)
+          </label>
+          <input
+            type="number"
+            name="hourly_rate"
+            value={formData.hourly_rate}
+            onChange={handleChange}
+            step="0.01"
+            min="0"
+            placeholder="Per hour"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Daily Rate (₹/day) *
+          </label>
+          <input
+            type="number"
+            name="daily_rate"
+            value={formData.daily_rate}
+            onChange={handleChange}
+            step="0.01"
+            min="0"
+            placeholder="Per day"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
+          />
+        </div>
       </div>
 
       <div>
@@ -118,7 +165,7 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
           Cancel
         </Button>
         <Button type="submit">
-          {labour ? 'Update Labour' : 'Add Labour'}
+          {labour ? 'Update Employee' : 'Add Employee'}
         </Button>
       </div>
     </form>
@@ -126,8 +173,8 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
 };
 
 const tabs = [
-  { id: 'details', label: 'Labour Details', component: LabourDetailsTab },
-  { id: 'ledger', label: 'Labour Ledger', component: LabourLedgerTab },
+  { id: 'details', label: 'Employee Details', component: LabourDetailsTab },
+  { id: 'attendance', label: 'Weekly Attendance Card', component: LabourLedgerTab },
 ];
 
 const Labour = () => {
@@ -141,18 +188,18 @@ const Labour = () => {
   const handleSave = async (labourData) => {
     try {
       await addLabour(labourData);
-      toast.success('Labour added successfully!');
+      toast.success('Employee added successfully!');
       setIsModalOpen(false);
     } catch (error) {
-      toast.error('Failed to add labour');
-      console.error('Error adding labour:', error);
+      toast.error('Failed to add employee');
+      console.error('Error adding employee:', error);
     }
   };
 
   const headerActions = (
     <Button onClick={() => setIsModalOpen(true)}>
       <PlusCircle className="h-4 w-4 mr-2" />
-      Add Labour
+      Add Employee
     </Button>
   );
 
@@ -161,14 +208,14 @@ const Labour = () => {
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Add New Labour"
+        title="Add New Employee"
       >
         <LabourForm onSave={handleSave} onCancel={() => setIsModalOpen(false)} />
       </Modal>
 
       <TabbedPage
         tabs={tabs}
-        title="Labour Management"
+        title="Employee Management"
         headerActions={headerActions}
       />
     </>

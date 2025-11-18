@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { Save, Printer, Trash2 } from "lucide-react";
+import Modal from "@/components/ui/Modal";
+import { Save, Printer, Trash2, Receipt } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
@@ -12,11 +13,138 @@ import { createStockMovement } from "@/utils/dataFlow";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
 
+// Cash Receipt Modal Component
+const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName, maxAmount }) => {
+  const [formData, setFormData] = useState({
+    name: customerName || "",
+    purpose: "Payment for Challan",
+    paymentType: "Cash",
+    amount: "",
+    status: "Received",
+    date: new Date().toISOString().split('T')[0],
+  });
+
+  useEffect(() => {
+    if (customerName) {
+      setFormData(prev => ({ ...prev, name: customerName }));
+    }
+  }, [customerName]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    if (parseFloat(formData.amount) > maxAmount) {
+      toast.error(`Amount cannot exceed balance due: ₹${maxAmount.toFixed(2)}`);
+      return;
+    }
+    onSubmit(formData);
+    setFormData({
+      name: customerName || "",
+      purpose: "Payment for Challan",
+      paymentType: "Cash",
+      amount: "",
+      status: "Received",
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  const resetForm = () => {
+    setFormData({
+      name: customerName || "",
+      purpose: "Payment for Challan",
+      paymentType: "Cash",
+      amount: "",
+      status: "Received",
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Cash Receipt">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Customer Name *</label>
+          <input
+            type="text"
+            value={formData.name}
+            readOnly
+            className="w-full p-2 border rounded bg-gray-100 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Purpose</label>
+          <input
+            type="text"
+            value={formData.purpose}
+            onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Payment Type</label>
+            <select
+              value={formData.paymentType}
+              onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Online">Online</option>
+              <option value="Cheque">Cheque</option>
+              <option value="UPI">UPI</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Amount (₹) *</label>
+            <input
+              type="number"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              placeholder="Enter amount"
+              step="0.01"
+              min="0"
+              required
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Max: ₹{maxAmount.toFixed(2)}</p>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Date</label>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="flex justify-end gap-2 pt-4 border-t dark:border-gray-600">
+          <Button type="button" variant="secondary" onClick={() => { resetForm(); onClose(); }}>
+            Cancel
+          </Button>
+          <Button type="submit">
+            Submit Receipt
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
+
 const ChalanStep = () => {
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "" });
+  const [isCashReceiptModalOpen, setIsCashReceiptModalOpen] = useState(false);
 
   useEffect(() => {
     loadRecords();
@@ -69,9 +197,66 @@ const ChalanStep = () => {
       toast.error('Failed to delete challan');
     }
   };
+
+  // Handle Cash Receipt submission
+  const handleCashReceiptSubmit = async (receiptData) => {
+    try {
+      // Find customer by name
+      const customers = await dbOperations.getAll('customers');
+      const customer = customers.find(c => 
+        c.name.toLowerCase() === receiptData.name.toLowerCase()
+      );
+
+      if (!customer) {
+        toast.error('Customer not found in system');
+        return;
+      }
+
+      const amount = parseFloat(receiptData.amount);
+      
+      // Create customer ledger entry for payment
+      await dbOperations.insert('customer_ledger_entries', {
+        customer_id: customer.id,
+        entry_date: receiptData.date,
+        type: 'payment',
+        description: `${receiptData.purpose} (${receiptData.paymentType})`,
+        debit: 0,
+        credit: amount,
+        reference_type: 'cash_receipt',
+        reference_id: Date.now(),
+      });
+
+      // Save to cash receipts list (for Accounts/Cash Receipt page)
+      const cashReceipts = JSON.parse(localStorage.getItem('cashReceipts') || '[]');
+      const newReceipt = {
+        id: Date.now(),
+        name: receiptData.name,
+        vehicleNo: jobCtx.vehicleNo || 'N/A',
+        purpose: receiptData.purpose,
+        paymentType: receiptData.paymentType,
+        amount: amount,
+        status: 'Received',
+        date: receiptData.date,
+        source: 'challan'
+      };
+      cashReceipts.push(newReceipt);
+      localStorage.setItem('cashReceipts', JSON.stringify(cashReceipts));
+
+      // Update manual payment amount
+      setManualPayment(prev => prev + amount);
+
+      toast.success(`Cash receipt of ₹${amount.toFixed(2)} recorded successfully`);
+      setIsCashReceiptModalOpen(false);
+    } catch (error) {
+      console.error('Cash receipt error:', error);
+      toast.error('Failed to record cash receipt');
+    }
+  };
+
   const [jobSheetEstimate, setJobSheetEstimate] = useState([]);
   const [extraWork, setExtraWork] = useState([]);
   const [discount, setDiscount] = useState(0);
+  const [roundOff, setRoundOff] = useState(0);
   const [advancePayment, setAdvancePayment] = useState(0);
   const [paymentStatus, setPaymentStatus] = useState('pending');
   const [manualPayment, setManualPayment] = useState(0);
@@ -80,13 +265,28 @@ const ChalanStep = () => {
   useEffect(() => {
     const estimateData = JSON.parse(localStorage.getItem("jobSheetEstimate") || "[]");
     const extraData = JSON.parse(localStorage.getItem("extraWork") || "[]");
-    const disc = parseFloat(localStorage.getItem("estimateDiscount")) || 0;
-    const advance = parseFloat(localStorage.getItem("estimateAdvancePayment")) || 0;
-
+    
     setJobSheetEstimate(estimateData);
     setExtraWork(extraData);
-    setDiscount(disc);
-    setAdvancePayment(advance);
+    
+    // Load from estimate context
+    try {
+      const estimateContext = localStorage.getItem("estimateContext");
+      if (estimateContext) {
+        const ctx = JSON.parse(estimateContext);
+        setDiscount(ctx.discount || 0);
+        setAdvancePayment(ctx.advancePayment || 0);
+        setRoundOff(ctx.roundOff || 0);
+      } else {
+        // Fallback to old method
+        setDiscount(parseFloat(localStorage.getItem("estimateDiscount")) || 0);
+        setAdvancePayment(parseFloat(localStorage.getItem("estimateAdvancePayment")) || 0);
+        setRoundOff(parseFloat(localStorage.getItem("estimateRoundOff")) || 0);
+      }
+    } catch (e) {
+      console.error('Failed to load estimate context:', e);
+    }
+    
     try {
       const raw = localStorage.getItem('jobsContext');
       if (raw) setJobCtx(JSON.parse(raw));
@@ -120,7 +320,8 @@ const ChalanStep = () => {
 
   const grandTotal = subTotalEstimate + subTotalExtra;
   const totalAfterDiscount = grandTotal - discount;
-  const finalTotal = totalAfterDiscount - advancePayment;
+  const totalWithRoundOff = totalAfterDiscount + roundOff;
+  const finalTotal = totalWithRoundOff - advancePayment;
 
   // ✅ Delete entry from localStorage + UI
   const handleDelete = (type, index) => {
@@ -500,13 +701,26 @@ const ChalanStep = () => {
                 </div>
                 <div>
                   <label className="block text-xs mb-1">Payment Amount (₹)</label>
-                  <input
-                    type="number"
-                    value={manualPayment}
-                    onChange={(e) => setManualPayment(parseFloat(e.target.value) || 0)}
-                    className="w-full p-1.5 text-sm border rounded"
-                    placeholder="Amount"
-                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="number"
+                      value={manualPayment}
+                      readOnly
+                      className="w-full p-1.5 text-sm border rounded bg-gray-100 dark:bg-gray-800 cursor-not-allowed"
+                      placeholder="0"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setIsCashReceiptModalOpen(true)}
+                      disabled={createInvoice || !jobCtx.partyName}
+                      className="px-2 shadow-md hover:shadow-lg transition-shadow"
+                      title={createInvoice ? "Disabled when Create Invoice is checked" : "Add Cash Receipt"}
+                    >
+                      ₹
+                    </Button>
+                  </div>
                 </div>
                 <div className="flex items-end">
                   <label className="flex items-center gap-1 cursor-pointer">
@@ -557,6 +771,15 @@ const ChalanStep = () => {
         onConfirm={() => handleDeleteRecord(deleteConfirmId)}
         title="Delete Chalan"
         message="Are you sure you want to delete this chalan record? This action cannot be undone."
+      />
+
+      {/* Cash Receipt Modal */}
+      <CashReceiptModal
+        isOpen={isCashReceiptModalOpen}
+        onClose={() => setIsCashReceiptModalOpen(false)}
+        onSubmit={handleCashReceiptSubmit}
+        customerName={jobCtx.partyName}
+        maxAmount={finalTotal - manualPayment}
       />
     </div>
   );

@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Trash2, Edit } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { broadcastDataChange } from '@/utils/dataSync';
 
 const CashReceiptForm = ({ receipt, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
@@ -247,6 +248,27 @@ const CashReceipt = () => {
     loadReceipts();
   }, []);
 
+  // Auto-refresh when page becomes visible or focused
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        loadReceipts();
+      }
+    };
+
+    const handleFocus = () => {
+      loadReceipts();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   const loadReceipts = async () => {
     setLoading(true);
     try {
@@ -343,6 +365,14 @@ const CashReceipt = () => {
         toast.success('Receipt saved successfully');
       }
 
+      // Broadcast data change to customer ledger
+      broadcastDataChange('cash_receipt', editingReceipt ? 'updated' : 'created', {
+        receipt_id: receiptRecord.id,
+        customer_id: receiptData.customer_id,
+        receipt_no: receiptNo,
+        amount: parseFloat(receiptData.amount)
+      });
+
       setIsModalOpen(false);
       setEditingReceipt(null);
       loadReceipts();
@@ -370,6 +400,14 @@ const CashReceipt = () => {
       }
       
       toast.success('Receipt deleted successfully');
+      
+      // Broadcast data change
+      const deletedReceipt = receipts.find(r => r.id === id);
+      broadcastDataChange('cash_receipt', 'deleted', {
+        receipt_id: id,
+        customer_id: deletedReceipt?.customer_id
+      });
+      
       loadReceipts();
     } catch (error) {
       console.error('Error deleting receipt:', error);

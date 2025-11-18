@@ -3,12 +3,18 @@ import Button from '@/components/ui/Button';
 
 const STATUS_COLORS = {
   'in-progress': 'bg-yellow-400',
+  'pending-confirmation': 'bg-orange-400',
+  'approve-next-step': 'bg-green-400',
+  'deal-not-done': 'bg-gray-500',
   'complete': 'bg-blue-500',
   'hold': 'bg-red-500',
 };
 
 const STATUS_LABELS = {
   'in-progress': 'Work in Progress',
+  'pending-confirmation': 'Pending for Customer Confirmation',
+  'approve-next-step': 'Approve for Next Step',
+  'deal-not-done': 'Deal Not Done',
   'complete': 'Complete',
   'hold': 'Hold for Material',
 };
@@ -52,11 +58,11 @@ const JobReportList = ({ records, onEdit, onDelete, stepName, showStatus = true 
                   <td className="p-3">
                     <div className="flex items-center gap-2">
                       <div
-                        className={`w-3 h-3 rounded-full ${STATUS_COLORS[record.status]}`}
-                        title={STATUS_LABELS[record.status]}
+                        className={`w-3 h-3 rounded-full ${STATUS_COLORS[record.status] || 'bg-gray-400'}`}
+                        title={STATUS_LABELS[record.status] || record.status}
                       />
                       <span className="text-xs text-gray-600 dark:text-gray-400">
-                        {STATUS_LABELS[record.status]}
+                        {STATUS_LABELS[record.status] || record.status || 'N/A'}
                       </span>
                     </div>
                   </td>

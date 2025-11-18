@@ -18,10 +18,12 @@ const JobSheetStep = () => {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [vendors, setVendors] = useState([]);
   const [labourers, setLabourers] = useState([]);
+  const [categories, setCategories] = useState([]);
 
   useEffect(() => {
     loadRecords();
     loadVendorsAndLabourers();
+    loadCategories();
   }, []);
 
   const loadVendorsAndLabourers = async () => {
@@ -33,6 +35,15 @@ const JobSheetStep = () => {
       setLabourers(labourData || []);
     } catch (error) {
       console.error('Failed to load vendors/labourers:', error);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const categoryData = await dbOperations.getAll('inventory_categories');
+      setCategories(categoryData || []);
+    } catch (error) {
+      console.error('Failed to load categories:', error);
     }
   };
 
@@ -208,6 +219,9 @@ const JobSheetStep = () => {
             const group = vendorGroups[vendorId];
             const combinedWork = group.works.join(', ');
             
+            // Calculate 12% of total amount for vendor
+            const vendorAmount = group.totalAmount * 0.12;
+            
             try {
               await dbOperations.insert('vendor_ledger_entries', {
                 id: `${group.vendor.id}_${vehicleNo}_${date}_${Date.now()}`,
@@ -215,10 +229,11 @@ const JobSheetStep = () => {
                 entry_date: date,
                 particulars: combinedWork,
                 category: 'Multiple Works',
-                debit_amount: 0,
-                credit_amount: group.totalAmount,
+                debit_amount: vendorAmount,
+                credit_amount: 0,
                 vehicle_no: vehicleNo,
                 owner_name: jobCtx.partyName || '',
+                work: combinedWork,
                 reference_type: 'job_sheet',
                 reference_no: vehicleNo,
                 entry_type: 'job_sheet'
@@ -367,8 +382,32 @@ const JobSheetStep = () => {
   const extraWorkSubTotal = extraWork.reduce((acc, item) => acc + calculateTotal(item), 0);
   const grandTotal = estimateSubTotal + extraWorkSubTotal;
 
-  const discount = parseFloat(localStorage.getItem("estimateDiscount")) || 0;
-  const finalTotal = grandTotal - discount;
+  // Load discount, advance, and round off from estimate context
+  const [discount, setDiscount] = useState(0);
+  const [advancePayment, setAdvancePayment] = useState(0);
+  const [roundOff, setRoundOff] = useState(0);
+  
+  useEffect(() => {
+    try {
+      const estimateContext = localStorage.getItem("estimateContext");
+      if (estimateContext) {
+        const ctx = JSON.parse(estimateContext);
+        setDiscount(ctx.discount || 0);
+        setAdvancePayment(ctx.advancePayment || 0);
+        setRoundOff(ctx.roundOff || 0);
+      } else {
+        // Fallback to old method
+        setDiscount(parseFloat(localStorage.getItem("estimateDiscount")) || 0);
+        setAdvancePayment(parseFloat(localStorage.getItem("estimateAdvancePayment")) || 0);
+        setRoundOff(parseFloat(localStorage.getItem("estimateRoundOff")) || 0);
+      }
+    } catch (e) {
+      console.error('Failed to load estimate context:', e);
+    }
+  }, []);
+  
+  const finalTotal = grandTotal - discount + roundOff;
+  const balanceDue = finalTotal - advancePayment;
 
   // Prefill context from Inspection (vehicle/party)
   const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "", date: "" });
@@ -517,14 +556,18 @@ const JobSheetStep = () => {
                       />
                     </td>
                     <td className="p-2">
-                      <input
-                        type="text"
-                        value={item.category}
+                      <select
+                        value={item.category || ''}
                         onChange={(e) =>
                           handleExtraWorkChange(index, "category", e.target.value)
                         }
                         className="w-full p-1 border rounded"
-                      />
+                      >
+                        <option value="">Select Category</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.name}>{cat.name}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="p-2">
                       <input
@@ -600,10 +643,13 @@ const JobSheetStep = () => {
       </div>
 
       {/* Totals */}
-      <div className="text-right font-bold text-lg">
+      <div className="text-right font-bold text-lg space-y-2">
         <div>Grand Total: ₹{grandTotal.toFixed(2)}</div>
         <div>Estimate Discount: ₹{discount.toFixed(2)}</div>
-        <div>Final Total: ₹{finalTotal.toFixed(2)}</div>
+        <div>Round Off: ₹{roundOff.toFixed(2)}</div>
+        <div className="text-xl border-t-2 pt-2">Final Total: ₹{finalTotal.toFixed(2)}</div>
+        <div className="text-green-600">Advance Payment: ₹{advancePayment.toFixed(2)}</div>
+        <div className="text-xl text-red-600 border-t-2 pt-2">Balance Due: ₹{balanceDue.toFixed(2)}</div>
       </div>
 
       {/* Save Job Sheet Button */}

@@ -8,6 +8,7 @@ import { toast } from 'sonner';
 import { PlusCircle, Download, FileText, Printer, Edit, Trash2, Search, ExternalLink } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 import jsPDF from 'jspdf';
+import { subscribeToEntity } from '@/utils/dataSync';
 
 const ManualEntryForm = ({ supplierId, entry, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
@@ -272,6 +273,68 @@ const SupplierLedgerTab = () => {
     } else {
       setLedgerEntries([]);
     }
+  }, [selectedSupplierId, filters]);
+
+  // Auto-refresh when page becomes visible or focused
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && selectedSupplierId) {
+        fetchLedgerEntries();
+      }
+    };
+
+    const handleFocus = () => {
+      if (selectedSupplierId) {
+        fetchLedgerEntries();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [selectedSupplierId, filters]);
+
+  // Listen for voucher changes from Accounts module
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('voucher', ({ action, data }) => {
+      console.log('[SupplierLedger] Voucher event received:', action, data);
+      if (data?.payee_type === 'supplier' && data?.payee_id === selectedSupplierId) {
+        console.log('[SupplierLedger] Voucher change detected for current supplier, refreshing...');
+        // Immediate refresh
+        setTimeout(() => fetchLedgerEntries(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedSupplierId]);
+
+  // Listen for purchase changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('purchase', ({ action, data }) => {
+      console.log('[SupplierLedger] Purchase event received:', action, data);
+      if (data?.supplier_id === selectedSupplierId) {
+        console.log('[SupplierLedger] Purchase change detected for current supplier, refreshing...');
+        // Immediate refresh
+        setTimeout(() => fetchLedgerEntries(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedSupplierId]);
+
+  // Add polling for real-time updates every 5 seconds
+  useEffect(() => {
+    if (!selectedSupplierId) return;
+
+    const pollInterval = setInterval(() => {
+      fetchLedgerEntries();
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
   }, [selectedSupplierId, filters]);
 
   const fetchLedgerEntries = async () => {

@@ -106,6 +106,73 @@ const useCustomerStore = create((set, get) => ({
     }
   },
 
+  addLead: async (leadData) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await dbOperations.insert('customers', {
+        ...leadData,
+        type: 'lead',
+        created_at: new Date().toISOString(),
+      });
+
+      set((state) => ({
+        leads: [data, ...state.leads],
+        loading: false,
+      }));
+
+      toast.success('Lead added successfully');
+      return data;
+    } catch (error) {
+      console.error('Error adding lead:', error);
+      set({ error: error.message, loading: false });
+      toast.error('Failed to add lead: ' + error.message);
+      throw error;
+    }
+  },
+
+  updateLead: async (updatedLead) => {
+    set({ loading: true, error: null });
+    try {
+      const data = await dbOperations.update('customers', updatedLead.id, {
+        ...updatedLead,
+        type: 'lead',
+        updated_at: new Date().toISOString(),
+      });
+
+      set((state) => ({
+        leads: state.leads.map((l) => (l.id === updatedLead.id ? data : l)),
+        loading: false,
+      }));
+
+      toast.success('Lead updated successfully');
+      return data;
+    } catch (error) {
+      console.error('Error updating lead:', error);
+      set({ error: error.message, loading: false });
+      toast.error('Failed to update lead');
+      throw error;
+    }
+  },
+
+  deleteLead: async (leadId) => {
+    set({ loading: true, error: null });
+    try {
+      await dbOperations.delete('customers', leadId);
+
+      set((state) => ({
+        leads: state.leads.filter((l) => l.id !== leadId),
+        loading: false,
+      }));
+
+      toast.success('Lead deleted successfully');
+    } catch (error) {
+      console.error('Error deleting lead:', error);
+      set({ error: error.message, loading: false });
+      toast.error('Failed to delete lead');
+      throw error;
+    }
+  },
+
   updateCustomer: async (updatedCustomer) => {
     set({ loading: true, error: null });
     try {

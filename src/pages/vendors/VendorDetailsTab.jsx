@@ -6,6 +6,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
 import { Edit, Trash2, Download, Printer, Search } from 'lucide-react';
+import { dbOperations } from '@/lib/db';
 
 const VendorForm = ({ vendor, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
@@ -17,6 +18,7 @@ const VendorForm = ({ vendor, onSave, onCancel }) => {
       gstin: '',
       vendor_type: '',
       credit_limit: 0,
+      opening_balance: 0,
     }
   );
 
@@ -132,6 +134,24 @@ const VendorForm = ({ vendor, onSave, onCancel }) => {
         />
       </div>
 
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Opening Balance (₹)
+        </label>
+        <input
+          type="number"
+          name="opening_balance"
+          value={formData.opening_balance}
+          onChange={handleChange}
+          step="0.01"
+          placeholder="Enter opening balance"
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
+        />
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+          Positive for amount owed to vendor, Negative for advance paid
+        </p>
+      </div>
+
       <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
         <Button type="button" variant="secondary" onClick={onCancel}>
           Cancel
@@ -149,10 +169,47 @@ const VendorDetailsTab = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [vendorToDelete, setVendorToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [vendorBalances, setVendorBalances] = useState({});
 
   useEffect(() => {
     fetchVendors();
   }, [fetchVendors]);
+
+  // Calculate net balance for all vendors
+  useEffect(() => {
+    const calculateBalances = async () => {
+      if (!vendors || vendors.length === 0) return;
+      
+      try {
+        const [allLedger, allVouchers] = await Promise.all([
+          dbOperations.getAll('vendor_ledger_entries'),
+          dbOperations.getAll('vouchers')
+        ]);
+        
+        const balances = {};
+        
+        vendors.forEach(vendor => {
+          // Calculate from ledger entries
+          const vendorLedger = allLedger.filter(e => e.vendor_id === vendor.id);
+          const totalDebit = vendorLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
+          const totalCredit = vendorLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
+          
+          // Calculate payments from vouchers
+          const vendorVouchers = allVouchers.filter(v => v.payee_type === 'vendor' && v.payee_id === vendor.id);
+          const totalPayments = vendorVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
+          
+          // Net Balance = (Debit - Credit) from ledger
+          balances[vendor.id] = (totalDebit - totalCredit);
+        });
+        
+        setVendorBalances(balances);
+      } catch (error) {
+        console.error('Error calculating balances:', error);
+      }
+    };
+    
+    calculateBalances();
+  }, [vendors]);
 
   const handleEdit = (vendor) => {
     setEditingVendor(vendor);
@@ -305,17 +362,18 @@ const VendorDetailsTab = () => {
                     <td className="p-3 text-right">
                       <span
                         className={`font-medium ${
-                          parseFloat(v.current_balance || 0) > 0
+                          (vendorBalances[v.id] || 0) > 0
                             ? 'text-red-600 dark:text-red-400'
-                            : 'text-green-600 dark:text-green-400'
+                            : (vendorBalances[v.id] || 0) < 0
+                            ? 'text-green-600 dark:text-green-400'
+                            : 'text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        ₹{parseFloat(v.current_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{Math.abs(vendorBalances[v.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
                     <td className="p-3 text-right">
-                      <div className="flex justify-end items-center space-x-2">
-                        <Button variant="ghost" className="p-2 h-auto" onClick={() => handleEdit(v)}>
+                      <div className="flex justify-end items-center space-x-2">\n                        <Button variant="ghost" className="p-2 h-auto" onClick={() => handleEdit(v)}>
                           <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         </Button>
                         <Button variant="ghost" className="p-2 h-auto" onClick={() => handleDelete(v)}>

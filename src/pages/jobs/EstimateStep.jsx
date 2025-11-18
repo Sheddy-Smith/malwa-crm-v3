@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import jsPDF from "jspdf";
 import Button from "@/components/ui/Button";
 import Card from "@/components/ui/Card";
+import Modal from "@/components/ui/Modal";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import ConfirmModal from "@/components/ui/ConfirmModal";
@@ -10,6 +11,116 @@ import useAuthStore from "@/store/authStore";
 import { dbOperations } from "@/lib/db";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
+
+// Cash Receipt Modal Component
+const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName }) => {
+  const [formData, setFormData] = useState({
+    name: customerName || "",
+    purpose: "Advance Payment for Estimate",
+    paymentType: "Cash",
+    amount: "",
+    status: "Received",
+    date: new Date().toISOString().split('T')[0],
+  });
+
+  useEffect(() => {
+    if (customerName) {
+      setFormData(prev => ({ ...prev, name: customerName }));
+    }
+  }, [customerName]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.amount || parseFloat(formData.amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
+    onSubmit(formData);
+    setFormData({
+      name: customerName || "",
+      purpose: "Advance Payment for Estimate",
+      paymentType: "Cash",
+      amount: "",
+      status: "Received",
+      date: new Date().toISOString().split('T')[0],
+    });
+  };
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Cash Receipt - Advance Payment">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Customer Name *</label>
+          <input
+            type="text"
+            value={formData.name}
+            readOnly
+            className="w-full p-2 border rounded bg-gray-100 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Purpose</label>
+          <input
+            type="text"
+            value={formData.purpose}
+            onChange={(e) => setFormData({ ...formData, purpose: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Payment Type</label>
+            <select
+              value={formData.paymentType}
+              onChange={(e) => setFormData({ ...formData, paymentType: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Online">Online</option>
+              <option value="Cheque">Cheque</option>
+              <option value="UPI">UPI</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Amount (₹) *</label>
+            <input
+              type="number"
+              value={formData.amount}
+              onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              placeholder="Enter amount"
+              step="0.01"
+              min="0"
+              required
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1 dark:text-gray-300">Date</label>
+          <input
+            type="date"
+            value={formData.date}
+            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+
+        <div className="flex gap-2 justify-end pt-4">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit">
+            Submit Receipt
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+};
 
 // Number to words conversion
 const numberToWords = (num) => {
@@ -76,6 +187,7 @@ const EstimateStep = () => {
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [currentRecordId, setCurrentRecordId] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [isCashReceiptModalOpen, setIsCashReceiptModalOpen] = useState(false);
 
   const [details, setDetails] = useState({
     vehicleNo: "",
@@ -92,14 +204,39 @@ const EstimateStep = () => {
     const localItems = saved ? JSON.parse(saved) : [];
     setItems(localItems);
 
-    const savedDiscount = localStorage.getItem("estimateDiscount");
-    setDiscount(savedDiscount ? parseFloat(savedDiscount) : 0);
+    // Try to load from saved estimate context first
+    const savedEstimateContext = localStorage.getItem("estimateContext");
+    if (savedEstimateContext) {
+      try {
+        const ctx = JSON.parse(savedEstimateContext);
+        if (ctx.currentRecordId) {
+          setCurrentRecordId(ctx.currentRecordId);
+          setDiscount(ctx.discount || 0);
+          setAdvancePayment(ctx.advancePayment || 0);
+          setRoundOff(ctx.roundOff || 0);
+          setDetails(prev => ({
+            ...prev,
+            vehicleNo: ctx.vehicleNo || prev.vehicleNo,
+            partyName: ctx.partyName || prev.partyName,
+            date: ctx.date || prev.date,
+            branch: ctx.branch || prev.branch,
+            status: ctx.status || prev.status,
+          }));
+        }
+      } catch (e) {
+        console.error('Failed to load estimate context:', e);
+      }
+    } else {
+      // Fallback to old localStorage method
+      const savedDiscount = localStorage.getItem("estimateDiscount");
+      setDiscount(savedDiscount ? parseFloat(savedDiscount) : 0);
 
-    const savedAdvance = localStorage.getItem("estimateAdvancePayment");
-    setAdvancePayment(savedAdvance ? parseFloat(savedAdvance) : 0);
+      const savedAdvance = localStorage.getItem("estimateAdvancePayment");
+      setAdvancePayment(savedAdvance ? parseFloat(savedAdvance) : 0);
 
-    const savedRoundOff = localStorage.getItem("estimateRoundOff");
-    setRoundOff(savedRoundOff ? parseFloat(savedRoundOff) : 0);
+      const savedRoundOff = localStorage.getItem("estimateRoundOff");
+      setRoundOff(savedRoundOff ? parseFloat(savedRoundOff) : 0);
+    }
 
     // Prefill vehicle/party from Inspection context if available
     try {
@@ -120,15 +257,35 @@ const EstimateStep = () => {
 
   useEffect(() => {
     localStorage.setItem("estimateDiscount", discount.toString());
+    saveEstimateContext();
   }, [discount]);
 
   useEffect(() => {
     localStorage.setItem("estimateAdvancePayment", advancePayment.toString());
+    saveEstimateContext();
   }, [advancePayment]);
 
   useEffect(() => {
     localStorage.setItem("estimateRoundOff", roundOff.toString());
+    saveEstimateContext();
   }, [roundOff]);
+
+  // Save complete estimate context for persistence across steps
+  const saveEstimateContext = () => {
+    const estimateContext = {
+      currentRecordId,
+      vehicleNo: details.vehicleNo,
+      partyName: details.partyName,
+      date: details.date,
+      branch: details.branch,
+      status: details.status,
+      discount,
+      advancePayment,
+      roundOff,
+      items,
+    };
+    localStorage.setItem("estimateContext", JSON.stringify(estimateContext));
+  };
 
   const loadRecords = async () => {
     try {
@@ -234,6 +391,9 @@ const EstimateStep = () => {
         }
       }
       await loadRecords();
+      
+      // Save estimate context for next steps
+      saveEstimateContext();
     } catch (e) {
       console.error(e);
       toast.error('Failed to save estimate');
@@ -253,8 +413,63 @@ const EstimateStep = () => {
     setDiscount(record.discount || 0);
     setRoundOff(record.round_off || 0);
     setAdvancePayment(record.advance_payment || 0);
+    
+    // Save to context for persistence
+    const estimateContext = {
+      currentRecordId: record.id,
+      vehicleNo: record.vehicle_no,
+      partyName: record.party_name,
+      date: record.date,
+      branch: record.branch,
+      status: record.status,
+      discount: record.discount || 0,
+      advancePayment: record.advance_payment || 0,
+      roundOff: record.round_off || 0,
+      items: record.items || [],
+    };
+    localStorage.setItem("estimateContext", JSON.stringify(estimateContext));
+    
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info('Record loaded for editing');
+  };
+
+  const handleCashReceiptSubmit = async (receiptData) => {
+    try {
+      if (!details.partyName) {
+        toast.error('Please enter party name first');
+        return;
+      }
+
+      const amount = parseFloat(receiptData.amount) || 0;
+
+      // Save to cash receipts list (for Accounts/Cash Receipt page)
+      const cashReceipts = JSON.parse(localStorage.getItem('cashReceipts') || '[]');
+      const newReceipt = {
+        id: Date.now(),
+        name: details.partyName,
+        vehicleNo: details.vehicleNo || 'N/A',
+        purpose: receiptData.purpose,
+        paymentType: receiptData.paymentType,
+        amount: amount,
+        status: 'Received',
+        date: receiptData.date,
+        source: 'estimate'
+      };
+      cashReceipts.push(newReceipt);
+      localStorage.setItem('cashReceipts', JSON.stringify(cashReceipts));
+      
+      // Update advance payment
+      setAdvancePayment(prev => prev + amount);
+      
+      // Save context to persist the advance payment
+      setTimeout(() => saveEstimateContext(), 100);
+      
+      toast.success('Advance payment recorded successfully');
+      setIsCashReceiptModalOpen(false);
+    } catch (error) {
+      console.error('Error recording advance payment:', error);
+      toast.error('Failed to record advance payment');
+    }
   };
 
   const handleDeleteRecord = async (id) => {
@@ -298,6 +513,10 @@ const EstimateStep = () => {
     setDiscount(0);
     setRoundOff(0);
     setAdvancePayment(0);
+    
+    // Clear estimate context
+    localStorage.removeItem("estimateContext");
+    
     toast.info('Ready for new estimate');
   };
 
@@ -512,14 +731,24 @@ const EstimateStep = () => {
                 <span>₹{(totalAfterDiscount + parseFloat(roundOff || 0)).toFixed(2)}</span>
               </div>
               <div className="flex justify-between border-b py-1">
-                <span>Advance Payment:</span>
-                <input
-                  type="number"
-                  value={advancePayment}
-                  onChange={(e) => setAdvancePayment(parseFloat(e.target.value) || 0)}
-                  className="w-20 border px-2 py-1 text-right text-sm"
-                  placeholder="0.00"
-                />
+                <div className="flex gap-2 items-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsCashReceiptModalOpen(true)}
+                    disabled={!details.partyName}
+                    className="px-2 py-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 font-bold text-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                    style={{
+                      textShadow: '1px 1px 2px rgba(0,0,0,0.3)',
+                      filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))',
+                      minWidth: '35px'
+                    }}
+                    title="Record Advance Payment"
+                  >
+                    ₹
+                  </button>
+                  <span>Advance Payment:</span>
+                </div>
+                <span className="text-right">₹{advancePayment.toFixed(2)}</span>
               </div>
               <div className="flex justify-between font-bold text-lg py-2 border-t-2">
                 <span>Balance Due:</span>
@@ -559,6 +788,7 @@ const EstimateStep = () => {
         onEdit={handleEditRecord}
         onDelete={(id) => setDeleteConfirmId(id)}
         stepName="Estimate"
+        showStatus={true}
       />
 
       <ConfirmModal
@@ -567,6 +797,13 @@ const EstimateStep = () => {
         onConfirm={() => handleDeleteRecord(deleteConfirmId)}
         title="Delete Estimate"
         message="Are you sure you want to delete this estimate record? This action cannot be undone."
+      />
+
+      <CashReceiptModal
+        isOpen={isCashReceiptModalOpen}
+        onClose={() => setIsCashReceiptModalOpen(false)}
+        onSubmit={handleCashReceiptSubmit}
+        customerName={details.partyName}
       />
     </div>
   );
