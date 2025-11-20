@@ -4,13 +4,16 @@
 
 
 
-import { Save } from "lucide-react";
+import { Save, FileText, Printer } from "lucide-react";
 import React, { useState, useEffect } from "react";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import ConfirmModal from "@/components/ui/ConfirmModal";
+import Modal from "@/components/ui/Modal";
 import { dbOperations } from "@/lib/db";
 import { toast } from "sonner";
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const JobSheetStep = () => {
   const [records, setRecords] = useState([]);
@@ -19,6 +22,7 @@ const JobSheetStep = () => {
   const [vendors, setVendors] = useState([]);
   const [labourers, setLabourers] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [isWorkOrderModalOpen, setIsWorkOrderModalOpen] = useState(false);
 
   useEffect(() => {
     loadRecords();
@@ -653,7 +657,14 @@ const JobSheetStep = () => {
       </div>
 
       {/* Save Job Sheet Button */}
-      <div className="mt-6 flex justify-end">
+      <div className="mt-6 flex justify-end gap-3">
+        <button
+          onClick={() => setIsWorkOrderModalOpen(true)}
+          className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 shadow-md transition-colors"
+        >
+          <FileText className="w-5 h-5" />
+          Work Order Generate
+        </button>
         <button
           onClick={saveJobSheet}
           className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 shadow-md transition-colors"
@@ -681,6 +692,185 @@ const JobSheetStep = () => {
         title="Delete Job Sheet"
         message="Are you sure you want to delete this job sheet record? This action cannot be undone."
       />
+
+      {/* Work Order Modal */}
+      <Modal
+        isOpen={isWorkOrderModalOpen}
+        onClose={() => setIsWorkOrderModalOpen(false)}
+        title="Work Order"
+        size="xxl"
+      >
+        <div className="space-y-6">
+          {(() => {
+            // Combine inspection items and extra work
+            const allItems = [...estimateItems, ...extraWork];
+            
+            // Group items by assignedTo person
+            const groupedByPerson = {};
+            
+            allItems.forEach(item => {
+              if (item.assignedTo && item.workOrder) {
+                if (!groupedByPerson[item.assignedTo]) {
+                  groupedByPerson[item.assignedTo] = {
+                    workOrder: item.workOrder,
+                    items: []
+                  };
+                }
+                groupedByPerson[item.assignedTo].items.push(item);
+              }
+            });
+
+            // If no items assigned
+            if (Object.keys(groupedByPerson).length === 0) {
+              return (
+                <div className="text-center py-8 text-gray-500">
+                  No work orders assigned yet. Please assign work to Labour or Vendor in the job sheet.
+                </div>
+              );
+            }
+
+            const handlePrintAllWorkOrders = () => {
+              const printContent = document.getElementById('all-work-orders');
+              const printWindow = window.open('', '', 'height=600,width=800');
+              printWindow.document.write('<html><head><title>Work Orders</title>');
+              printWindow.document.write('<style>@page { margin: 20mm; } body{font-family: Arial, sans-serif; padding: 0; margin: 0;} .print-container{padding: 15mm;} table{width:100%; border-collapse: collapse; margin-bottom: 30px;} th,td{border:1px solid #000; padding:4px 8px; text-align:left;} th{background:#f0f0f0;} .header{margin-bottom:15px; page-break-inside: avoid;} .work-order-section{page-break-inside: avoid; margin-bottom: 40px;} h3{margin: 0; font-size: 24px; text-transform: uppercase;} .subtitle{font-size: 16px; color: #666; margin-top: 5px;} .info{text-align: right; font-size: 16px;} @media print { .work-order-section { page-break-inside: avoid; } }</style>');
+              printWindow.document.write('</head><body><div class="print-container">');
+              printWindow.document.write(printContent.innerHTML);
+              printWindow.document.write('</div></body></html>');
+              printWindow.document.close();
+              printWindow.print();
+            };
+
+            const handleSaveAllPDF = async () => {
+              try {
+                const input = document.getElementById('all-work-orders');
+                
+                // Add padding wrapper for PDF
+                const wrapper = document.createElement('div');
+                wrapper.style.padding = '40px';
+                wrapper.style.backgroundColor = '#ffffff';
+                const clonedContent = input.cloneNode(true);
+                wrapper.appendChild(clonedContent);
+                document.body.appendChild(wrapper);
+                
+                const canvas = await html2canvas(wrapper, {
+                  scale: 4,
+                  useCORS: true,
+                  allowTaint: true,
+                  backgroundColor: '#ffffff',
+                  logging: false,
+                  width: wrapper.scrollWidth,
+                  height: wrapper.scrollHeight
+                });
+                
+                // Remove temporary wrapper
+                document.body.removeChild(wrapper);
+                
+                const imgData = canvas.toDataURL("image/jpeg", 0.98);
+                const pdf = new jsPDF({
+                  orientation: 'portrait',
+                  unit: 'mm',
+                  format: 'a4',
+                  compress: true
+                });
+                
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const imgWidth = pdfWidth;
+                const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+                
+                let heightLeft = imgHeight;
+                let position = 0;
+                
+                pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+                heightLeft -= pdfHeight;
+                
+                while (heightLeft >= 0) {
+                  position = heightLeft - imgHeight;
+                  pdf.addPage();
+                  pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+                  heightLeft -= pdfHeight;
+                }
+                
+                pdf.save(`WorkOrders_${jobCtx.vehicleNo || 'NA'}.pdf`);
+                toast.success('Work Orders PDF saved successfully!');
+              } catch (error) {
+                console.error('Error generating PDF:', error);
+                toast.error('Failed to save PDF');
+              }
+            };
+
+            // Display work orders grouped by person
+            return (
+              <>
+                <div id="all-work-orders" className="bg-white" style={{fontSize: '16px'}}>
+                  {Object.entries(groupedByPerson).map(([personName, data], personIdx) => (
+                    <div key={personName} className="work-order-section mb-8">
+                      <div className="header mb-4 pb-3 border-b-2 border-black">
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <h3 className="text-2xl font-bold text-gray-800 uppercase">
+                              {personName}
+                            </h3>
+                            <p className="subtitle text-lg text-gray-600">
+                              {data.workOrder} Work Order
+                            </p>
+                          </div>
+                          <div className="info text-right">
+                            <p className="text-lg text-gray-600"><strong>Vehicle:</strong> {jobCtx.vehicleNo || 'N/A'}</p>
+                            <p className="text-lg text-gray-600"><strong>Party:</strong> {jobCtx.partyName || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <table className="w-full text-lg border border-black border-collapse">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="p-2 border border-black text-left" style={{width: '8%'}}>S.No</th>
+                            <th className="p-2 border border-black text-left" style={{width: '52%'}}>Work Description</th>
+                            <th className="p-2 border border-black text-left" style={{width: '15%'}}>Category</th>
+                            <th className="p-2 border border-black text-center" style={{width: '10%'}}>Qty</th>
+                            <th className="p-2 border border-black text-left" style={{width: '15%'}}>Extra Work</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {data.items.map((item, idx) => (
+                            <tr key={idx}>
+                              <td className="p-2 border border-black text-lg">{idx + 1}</td>
+                              <td className="p-2 border border-black text-lg">{item.item || 'N/A'}</td>
+                              <td className="p-2 border border-black text-lg">{item.category || 'N/A'}</td>
+                              <td className="p-2 border border-black text-center text-lg">{item.multiplier || 1}</td>
+                              <td className="p-2 border border-black text-lg">&nbsp;</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Print and Save PDF buttons */}
+                <div className="mt-6 flex gap-3 justify-end border-t pt-4">
+                  <button
+                    onClick={handlePrintAllWorkOrders}
+                    className="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 shadow-md transition-colors"
+                  >
+                    <Printer className="w-5 h-5" />
+                    Print All
+                  </button>
+                  <button
+                    onClick={handleSaveAllPDF}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 shadow-md transition-colors"
+                  >
+                    <Save className="w-5 h-5" />
+                    Save PDF
+                  </button>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      </Modal>
     </div>
   );
 };

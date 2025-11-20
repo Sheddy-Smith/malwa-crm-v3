@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import useSupplierStore from '@/store/supplierStore';
+import useSupplierStore from '@/store/SupplierStore';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
@@ -8,15 +8,15 @@ import { toast } from 'sonner';
 import { Edit, Trash2, Download, Printer, Search } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 
-const SupplierForm = ({ supplier, onSave, onCancel }) => {
+const SupplierForm = ({ Supplier, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
-    supplier || {
+    Supplier || {
       name: '',
       phone: '',
       company: '',
       address: '',
       gstin: '',
-      supplier_type: '',
+      Supplier_type: '',
       credit_limit: 0,
       opening_balance: 0,
     }
@@ -84,8 +84,8 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
         </label>
         <input
           type="text"
-          name="supplier_type"
-          value={formData.supplier_type}
+          name="Supplier_type"
+          value={formData.Supplier_type}
           onChange={handleChange}
           placeholder="e.g., Parts Dealer, Painting"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
@@ -163,81 +163,81 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
 };
 
 const SupplierDetailsTab = () => {
-  const { suppliers, fetchSuppliers, updateSupplier, deleteSupplier, loading } = useSupplierStore();
+  const { Suppliers, fetchSuppliers, updateSupplier, deleteSupplier, loading } = useSupplierStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSupplier, seteditingSupplier] = useState(null);
+  const [editingSupplier, setEditingSupplier] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [supplierToDelete, setsupplierToDelete] = useState(null);
+  const [SupplierToDelete, setSupplierToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [supplierBalances, setsupplierBalances] = useState({});
+  const [SupplierBalances, setSupplierBalances] = useState({});
 
   useEffect(() => {
     fetchSuppliers();
   }, [fetchSuppliers]);
 
-  // Calculate net balance for all suppliers
+  // Calculate net balance for all Suppliers
   useEffect(() => {
     const calculateBalances = async () => {
-      if (!suppliers || suppliers.length === 0) return;
+      if (!Suppliers || Suppliers.length === 0) return;
       
       try {
         const [allLedger, allVouchers] = await Promise.all([
-          dbOperations.getAll('supplier_ledger_entries'),
+          dbOperations.getAll('Supplier_ledger_entries'),
           dbOperations.getAll('vouchers')
         ]);
         
         const balances = {};
         
-        suppliers.forEach(supplier => {
+        Suppliers.forEach(Supplier => {
           // Calculate from ledger entries
-          const supplierLedger = allLedger.filter(e => e.supplier_id === supplier.id);
-          const totalDebit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
-          const totalCredit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
+          const SupplierLedger = allLedger.filter(e => e.Supplier_id === Supplier.id);
+          const totalDebit = SupplierLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
+          const totalCredit = SupplierLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
           
           // Calculate payments from vouchers
-          const supplierVouchers = allVouchers.filter(v => v.payee_type === 'supplier' && v.payee_id === supplier.id);
-          const totalPayments = supplierVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
+          const SupplierVouchers = allVouchers.filter(v => v.payee_type === 'Supplier' && v.payee_id === Supplier.id);
+          const totalPayments = SupplierVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
           
           // Net Balance = (Debit - Credit) from ledger
-          balances[supplier.id] = (totalDebit - totalCredit);
+          balances[Supplier.id] = (totalDebit - totalCredit);
         });
         
-        setsupplierBalances(balances);
+        setSupplierBalances(balances);
       } catch (error) {
         console.error('Error calculating balances:', error);
       }
     };
     
     calculateBalances();
-  }, [suppliers]);
+  }, [Suppliers]);
 
-  const handleEdit = (supplier) => {
-    seteditingSupplier(supplier);
+  const handleEdit = (Supplier) => {
+    setEditingSupplier(Supplier);
     setIsModalOpen(true);
   };
 
-  const handleSave = async (supplierData) => {
+  const handleSave = async (SupplierData) => {
     try {
-      await updateSupplier({ ...editingSupplier, ...supplierData });
+      await updateSupplier({ ...editingSupplier, ...SupplierData });
       toast.success('Supplier updated successfully!');
       setIsModalOpen(false);
-      seteditingSupplier(null);
+      setEditingSupplier(null);
     } catch (error) {
       toast.error('Failed to update Supplier');
     }
   };
 
   const handleDelete = (Supplier) => {
-    setsupplierToDelete(Supplier);
+    setSupplierToDelete(Supplier);
     setIsDeleteModalOpen(true);
   };
 
   const confirmDelete = async () => {
     try {
-      await deleteSupplier(supplierToDelete.id);
-      toast.success(`Supplier "${supplierToDelete.name}" deleted successfully.`);
+      await deleteSupplier(SupplierToDelete.id);
+      toast.success(`Supplier "${SupplierToDelete.name}" deleted successfully.`);
       setIsDeleteModalOpen(false);
-      setsupplierToDelete(null);
+      setSupplierToDelete(null);
     } catch (error) {
       toast.error('Failed to delete Supplier');
     }
@@ -252,7 +252,7 @@ const SupplierDetailsTab = () => {
           v.name,
           v.phone,
           v.company || '',
-          v.supplier_type || '',
+          v.Supplier_type || '',
           v.gstin || '',
           v.current_balance || 0,
           v.credit_limit || 0,
@@ -274,12 +274,12 @@ const SupplierDetailsTab = () => {
     toast.success('Print dialog opened');
   };
 
-  const filteredSuppliers = suppliers.filter(
+  const filteredSuppliers = Suppliers.filter(
     (v) =>
       v.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       v.phone?.includes(searchTerm) ||
       v.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      v.supplier_type?.toLowerCase().includes(searchTerm.toLowerCase())
+      v.Supplier_type?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (loading) {
@@ -308,7 +308,7 @@ const SupplierDetailsTab = () => {
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
         title="Delete Supplier"
-        message={`Are you sure you want to delete "${supplierToDelete?.name}"? This action cannot be undone.`}
+        message={`Are you sure you want to delete "${SupplierToDelete?.name}"? This action cannot be undone.`}
       />
 
       <Card>
@@ -358,18 +358,18 @@ const SupplierDetailsTab = () => {
                     <td className="p-3 font-medium text-gray-900 dark:text-dark-text">{v.name}</td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.phone}</td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.company || '-'}</td>
-                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.supplier_type || '-'}</td>
+                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.Supplier_type || '-'}</td>
                     <td className="p-3 text-right">
                       <span
                         className={`font-medium ${
-                          (supplierBalances[v.id] || 0) > 0
+                          (SupplierBalances[v.id] || 0) > 0
                             ? 'text-red-600 dark:text-red-400'
-                            : (supplierBalances[v.id] || 0) < 0
+                            : (SupplierBalances[v.id] || 0) < 0
                             ? 'text-green-600 dark:text-green-400'
                             : 'text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        ₹{Math.abs(supplierBalances[v.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        ₹{Math.abs(SupplierBalances[v.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
                     <td className="p-3 text-right">
@@ -401,7 +401,7 @@ const SupplierDetailsTab = () => {
 
         {filteredSuppliers.length > 0 && (
           <div className="mt-4 text-sm text-gray-600 dark:text-dark-text-secondary">
-            Showing {filteredSuppliers.length} of {suppliers.length} Supplier(s)
+            Showing {filteredSuppliers.length} of {Suppliers.length} Supplier(s)
           </div>
         )}
       </Card>
@@ -410,4 +410,3 @@ const SupplierDetailsTab = () => {
 };
 
 export default SupplierDetailsTab;
-

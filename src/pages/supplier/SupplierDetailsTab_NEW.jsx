@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import useSupplierStore from '@/store/supplierStore';
+﻿import { useState, useEffect } from 'react';
+import useVendorStore from '@/store/vendorStore';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
@@ -8,15 +8,15 @@ import { toast } from 'sonner';
 import { Edit, Trash2, Download, Printer, Search } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 
-const SupplierForm = ({ supplier, onSave, onCancel }) => {
+const VendorForm = ({ vendor, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
-    supplier || {
+    vendor || {
       name: '',
       phone: '',
       company: '',
       address: '',
       gstin: '',
-      supplier_type: '',
+      vendor_type: '',
       credit_limit: 0,
       opening_balance: 0,
     }
@@ -80,12 +80,12 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Supplier Type
+          Vendor Type
         </label>
         <input
           type="text"
-          name="supplier_type"
-          value={formData.supplier_type}
+          name="vendor_type"
+          value={formData.vendor_type}
           onChange={handleChange}
           placeholder="e.g., Parts Dealer, Painting"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
@@ -122,7 +122,7 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Credit Limit (₹)
+          Credit Limit (â‚¹)
         </label>
         <input
           type="number"
@@ -136,7 +136,7 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Opening Balance (₹)
+          Opening Balance (â‚¹)
         </label>
         <input
           type="number"
@@ -148,7 +148,7 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
         />
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-          Positive for amount owed to Supplier, Negative for advance paid
+          Positive for amount owed to vendor, Negative for advance paid
         </p>
       </div>
 
@@ -162,97 +162,97 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
   );
 };
 
-const SupplierDetailsTab = () => {
-  const { suppliers, fetchSuppliers, updateSupplier, deleteSupplier, loading } = useSupplierStore();
+const VendorDetailsTab = () => {
+  const { vendors, fetchVendors, updateVendor, deleteVendor, loading } = useVendorStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingSupplier, seteditingSupplier] = useState(null);
+  const [editingVendor, setEditingVendor] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [supplierToDelete, setsupplierToDelete] = useState(null);
+  const [vendorToDelete, setVendorToDelete] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [supplierBalances, setsupplierBalances] = useState({});
+  const [vendorBalances, setVendorBalances] = useState({});
 
   useEffect(() => {
-    fetchSuppliers();
-  }, [fetchSuppliers]);
+    fetchVendors();
+  }, [fetchVendors]);
 
-  // Calculate net balance for all suppliers
+  // Calculate net balance for all vendors
   useEffect(() => {
     const calculateBalances = async () => {
-      if (!suppliers || suppliers.length === 0) return;
+      if (!vendors || vendors.length === 0) return;
       
       try {
         const [allLedger, allVouchers] = await Promise.all([
-          dbOperations.getAll('supplier_ledger_entries'),
+          dbOperations.getAll('vendor_ledger_entries'),
           dbOperations.getAll('vouchers')
         ]);
         
         const balances = {};
         
-        suppliers.forEach(supplier => {
+        vendors.forEach(vendor => {
           // Calculate from ledger entries
-          const supplierLedger = allLedger.filter(e => e.supplier_id === supplier.id);
-          const totalDebit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
-          const totalCredit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
+          const vendorLedger = allLedger.filter(e => e.vendor_id === vendor.id);
+          const totalDebit = vendorLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
+          const totalCredit = vendorLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
           
           // Calculate payments from vouchers
-          const supplierVouchers = allVouchers.filter(v => v.payee_type === 'supplier' && v.payee_id === supplier.id);
-          const totalPayments = supplierVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
+          const vendorVouchers = allVouchers.filter(v => v.payee_type === 'vendor' && v.payee_id === vendor.id);
+          const totalPayments = vendorVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
           
           // Net Balance = (Debit - Credit) from ledger
-          balances[supplier.id] = (totalDebit - totalCredit);
+          balances[vendor.id] = (totalDebit - totalCredit);
         });
         
-        setsupplierBalances(balances);
+        setVendorBalances(balances);
       } catch (error) {
         console.error('Error calculating balances:', error);
       }
     };
     
     calculateBalances();
-  }, [suppliers]);
+  }, [vendors]);
 
-  const handleEdit = (supplier) => {
-    seteditingSupplier(supplier);
+  const handleEdit = (vendor) => {
+    setEditingVendor(vendor);
     setIsModalOpen(true);
   };
 
-  const handleSave = async (supplierData) => {
+  const handleSave = async (vendorData) => {
     try {
-      await updateSupplier({ ...editingSupplier, ...supplierData });
-      toast.success('Supplier updated successfully!');
+      await updateVendor({ ...editingVendor, ...vendorData });
+      toast.success('Vendor updated successfully!');
       setIsModalOpen(false);
-      seteditingSupplier(null);
+      setEditingVendor(null);
     } catch (error) {
-      toast.error('Failed to update Supplier');
+      toast.error('Failed to update vendor');
     }
   };
 
-  const handleDelete = (Supplier) => {
-    setsupplierToDelete(Supplier);
+  const handleDelete = (vendor) => {
+    setVendorToDelete(vendor);
     setIsDeleteModalOpen(true);
   };
 
   const confirmDelete = async () => {
     try {
-      await deleteSupplier(supplierToDelete.id);
-      toast.success(`Supplier "${supplierToDelete.name}" deleted successfully.`);
+      await deleteVendor(vendorToDelete.id);
+      toast.success(`Vendor "${vendorToDelete.name}" deleted successfully.`);
       setIsDeleteModalOpen(false);
-      setsupplierToDelete(null);
+      setVendorToDelete(null);
     } catch (error) {
-      toast.error('Failed to delete Supplier');
+      toast.error('Failed to delete vendor');
     }
   };
 
   const exportToCSV = () => {
-    const headers = ['Name', 'Phone', 'Company', 'Supplier Type', 'GSTIN', 'Current Balance', 'Credit Limit'];
+    const headers = ['Name', 'Phone', 'Company', 'Vendor Type', 'GSTIN', 'Current Balance', 'Credit Limit'];
     const csvContent = [
       headers.join(','),
-      ...filteredSuppliers.map((v) =>
+      ...filteredVendors.map((v) =>
         [
           v.name,
           v.phone,
           v.company || '',
-          v.supplier_type || '',
+          v.vendor_type || '',
           v.gstin || '',
           v.current_balance || 0,
           v.credit_limit || 0,
@@ -264,9 +264,9 @@ const SupplierDetailsTab = () => {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Suppliers_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `vendors_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
-    toast.success('Suppliers exported to CSV');
+    toast.success('Vendors exported to CSV');
   };
 
   const handlePrint = () => {
@@ -274,12 +274,12 @@ const SupplierDetailsTab = () => {
     toast.success('Print dialog opened');
   };
 
-  const filteredSuppliers = suppliers.filter(
+  const filteredVendors = vendors.filter(
     (v) =>
       v.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       v.phone?.includes(searchTerm) ||
       v.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      v.supplier_type?.toLowerCase().includes(searchTerm.toLowerCase())
+      v.vendor_type?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (loading) {
@@ -287,7 +287,7 @@ const SupplierDetailsTab = () => {
       <Card>
         <div className="flex items-center justify-center py-12">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-red"></div>
-          <span className="ml-3 text-gray-600 dark:text-dark-text-secondary">Loading Suppliers...</span>
+          <span className="ml-3 text-gray-600 dark:text-dark-text-secondary">Loading vendors...</span>
         </div>
       </Card>
     );
@@ -295,9 +295,9 @@ const SupplierDetailsTab = () => {
 
   return (
     <div>
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Edit Supplier">
-        <SupplierForm
-          Supplier={editingSupplier}
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Edit Vendor">
+        <VendorForm
+          vendor={editingVendor}
           onSave={handleSave}
           onCancel={() => setIsModalOpen(false)}
         />
@@ -307,8 +307,8 @@ const SupplierDetailsTab = () => {
         isOpen={isDeleteModalOpen}
         onClose={() => setIsDeleteModalOpen(false)}
         onConfirm={confirmDelete}
-        title="Delete Supplier"
-        message={`Are you sure you want to delete "${supplierToDelete?.name}"? This action cannot be undone.`}
+        title="Delete Vendor"
+        message={`Are you sure you want to delete "${vendorToDelete?.name}"? This action cannot be undone.`}
       />
 
       <Card>
@@ -317,7 +317,7 @@ const SupplierDetailsTab = () => {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search Suppliers..."
+              placeholder="Search vendors..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent"
@@ -349,8 +349,8 @@ const SupplierDetailsTab = () => {
               </tr>
             </thead>
             <tbody>
-              {filteredSuppliers.length > 0 ? (
-                filteredSuppliers.map((v) => (
+              {filteredVendors.length > 0 ? (
+                filteredVendors.map((v) => (
                   <tr
                     key={v.id}
                     className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
@@ -358,18 +358,18 @@ const SupplierDetailsTab = () => {
                     <td className="p-3 font-medium text-gray-900 dark:text-dark-text">{v.name}</td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.phone}</td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.company || '-'}</td>
-                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.supplier_type || '-'}</td>
+                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">{v.vendor_type || '-'}</td>
                     <td className="p-3 text-right">
                       <span
                         className={`font-medium ${
-                          (supplierBalances[v.id] || 0) > 0
+                          (vendorBalances[v.id] || 0) > 0
                             ? 'text-red-600 dark:text-red-400'
-                            : (supplierBalances[v.id] || 0) < 0
+                            : (vendorBalances[v.id] || 0) < 0
                             ? 'text-green-600 dark:text-green-400'
                             : 'text-gray-600 dark:text-gray-400'
                         }`}
                       >
-                        ₹{Math.abs(supplierBalances[v.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                        â‚¹{Math.abs(vendorBalances[v.id] || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </span>
                     </td>
                     <td className="p-3 text-right">
@@ -387,9 +387,9 @@ const SupplierDetailsTab = () => {
                 <tr>
                   <td colSpan="6" className="text-center p-12">
                     <div className="flex flex-col items-center text-gray-500 dark:text-dark-text-secondary">
-                      <p className="text-lg font-medium">No Suppliers found</p>
+                      <p className="text-lg font-medium">No vendors found</p>
                       <p className="text-sm mt-1">
-                        {searchTerm ? 'Try adjusting your search terms' : 'Add your first Supplier to get started'}
+                        {searchTerm ? 'Try adjusting your search terms' : 'Add your first vendor to get started'}
                       </p>
                     </div>
                   </td>
@@ -399,9 +399,9 @@ const SupplierDetailsTab = () => {
           </table>
         </div>
 
-        {filteredSuppliers.length > 0 && (
+        {filteredVendors.length > 0 && (
           <div className="mt-4 text-sm text-gray-600 dark:text-dark-text-secondary">
-            Showing {filteredSuppliers.length} of {suppliers.length} Supplier(s)
+            Showing {filteredVendors.length} of {vendors.length} vendor(s)
           </div>
         )}
       </Card>
@@ -409,5 +409,4 @@ const SupplierDetailsTab = () => {
   );
 };
 
-export default SupplierDetailsTab;
-
+export default VendorDetailsTab;

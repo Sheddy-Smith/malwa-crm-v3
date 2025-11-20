@@ -523,12 +523,35 @@ const EstimateStep = () => {
   const handleSavePDF = () => {
     const input = document.getElementById("estimate-body");
     import('html2canvas').then(html2canvas => {
-      html2canvas.default(input, { scale: 2 }).then((canvas) => {
-        const imgData = canvas.toDataURL("image/png");
+      html2canvas.default(input, { 
+        scale: 4,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+        width: input.scrollWidth,
+        height: input.scrollHeight
+      }).then((canvas) => {
+        const imgData = canvas.toDataURL("image/jpeg", 0.98);
         const pdf = new jsPDF("p", "mm", "a4");
         const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-        pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = pdfWidth;
+        const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+        
+        let heightLeft = imgHeight;
+        let position = 0;
+        
+        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+        heightLeft -= pdfHeight;
+        
+        while (heightLeft >= 0) {
+          position = heightLeft - imgHeight;
+          pdf.addPage();
+          pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, 'SLOW');
+          heightLeft -= pdfHeight;
+        }
+        
         const filename = details.vehicleNo ? `${details.vehicleNo}_estimate.pdf` : "estimate.pdf";
         pdf.save(filename);
       });
@@ -593,27 +616,27 @@ const EstimateStep = () => {
         </div>
       </Card>
 
-      <div id="estimate-body" className="bg-white -mx-4 md:-mx-6 lg:-mx-8">
+      <div id="estimate-body" className="bg-white -mx-4 md:-mx-6 lg:-mx-8" style={{fontSize: '18px'}}>
         {/* Header Section */}
         <div className="mb-6 px-4 md:px-6 lg:px-8">
-          <div className="bg-red-600 text-white text-center py-3 -mx-4 md:-mx-6 lg:-mx-8 mb-4">
-            <h1 className="text-2xl font-bold tracking-wider">ESTIMATE</h1>
+          <div className="bg-red-600 text-white text-center py-5 -mx-4 md:-mx-6 lg:-mx-8 mb-4">
+            <h1 className="text-5xl font-bold tracking-wider">ESTIMATE</h1>
           </div>
           
           <div className="flex items-center justify-between mb-4">
             <div className="flex-1">
-              <h2 className="text-3xl font-bold text-red-600 mb-2">Malwa Trolley Indore</h2>
-              <p className="text-gray-600 italic mb-1">09, Nemawar Road, Udyog nagar, Palda, Indore</p>
-              <a href="http://www.malwatrolley.com" className="text-blue-600 underline">www.malwatrolley.com</a>
-              <p className="text-gray-700 mt-1">Contact :- +91 822 4000 822</p>
-              <p className="text-gray-700">GST : 23CLKPM9473J1ZI</p>
+              <h2 className="text-5xl font-bold text-red-600 mb-2">Malwa Trolley Indore</h2>
+              <p className="text-2xl text-gray-600 italic mb-1">09, Nemawar Road, Udyog nagar, Palda, Indore</p>
+              <a href="http://www.malwatrolley.com" className="text-2xl text-blue-600 underline">www.malwatrolley.com</a>
+              <p className="text-2xl text-gray-700 mt-1">Contact :- +91 822 4000 822</p>
+              <p className="text-2xl text-gray-700">GST : 23CLKPM9473J1ZI</p>
             </div>
             
             <div className="flex-shrink-0 ml-4">
               <img 
                 src="/malwa_logo.png" 
                 alt="Malwa Trolley Logo" 
-                className="h-32 w-32 object-contain"
+                className="h-64 w-64 object-contain"
                 onError={(e) => {
                   e.target.style.display = 'none';
                   console.log('Logo image not found');
@@ -625,12 +648,12 @@ const EstimateStep = () => {
 
         <div className="px-4 md:px-6 lg:px-8">
         {/* Customer Details */}
-        <div className="grid grid-cols-2 gap-4 mb-4 text-base">
-          <div className="border p-3">
-            <h5 className="font-bold mb-2">ESTIMATE FOR:</h5>
-            <div><strong>Vehicle No:</strong> {details.vehicleNo || 'N/A'}</div>
-            <div><strong>Party Name:</strong> {details.partyName || 'N/A'}</div>
-            <div><strong>Status:</strong> {(() => {
+        <div className="grid grid-cols-2 gap-4 mb-4 text-2xl">
+          <div className="border p-4">
+            <h5 className="font-bold mb-2 text-2xl">ESTIMATE FOR:</h5>
+            <div className="text-2xl"><strong>Vehicle No:</strong> {details.vehicleNo || 'N/A'}</div>
+            <div className="text-2xl"><strong>Party Name:</strong> {details.partyName || 'N/A'}</div>
+            <div className="text-2xl"><strong>Status:</strong> {(() => {
               const map = {
                 'in-progress': 'Work in Progress',
                 'pending-confirmation': 'Pending for Customer Confirmation',
@@ -642,26 +665,26 @@ const EstimateStep = () => {
               return map[details.status] || details.status;
             })()}</div>
           </div>
-          <div className="border p-3">
-            <div><strong>Estimate Date:</strong> {new Date(details.date).toLocaleDateString('en-GB')}</div>
+          <div className="border p-4">
+            <div className="text-2xl"><strong>Estimate Date:</strong> {new Date(details.date).toLocaleDateString('en-GB')}</div>
           </div>
         </div>
         
-        <h4 className="font-semibold mb-2">ITEMS</h4>
-        <table className="w-full text-base border border-collapse">
+        <h4 className="font-semibold mb-2 text-2xl">ITEMS</h4>
+        <table className="w-full text-2xl border border-collapse">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-2 border" style={{width: '5%'}}>S.No</th>
-              <th className="p-2 border" style={{width: '55%'}}>Work</th>
-              <th className="p-2 border" style={{width: '15%'}}>Cost (₹)</th>
-              <th className="p-2 border" style={{width: '10%'}}>Qty.</th>
-              <th className="p-2 border" style={{width: '15%'}}>Total (₹)</th>
+              <th className="p-3 border text-2xl font-bold" style={{width: '4%'}}>S.No</th>
+              <th className="p-3 border text-2xl font-bold" style={{width: '50%'}}>Work</th>
+              <th className="p-3 border text-2xl font-bold" style={{width: '17%'}}>Cost (₹)</th>
+              <th className="p-3 border text-2xl font-bold" style={{width: '10%'}}>Qty.</th>
+              <th className="p-3 border text-2xl font-bold" style={{width: '19%'}}>Total (₹)</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={5} className="p-4 text-center text-gray-500">
+                <td colSpan={5} className="p-4 text-center text-gray-500 text-2xl">
                   No inspection items.
                 </td>
               </tr>
@@ -670,11 +693,11 @@ const EstimateStep = () => {
               const multiplier = item.category ? getCategoryMultiplier(item.category.trim()) : (item.workBy ? getMultiplierByWorkType(item.workBy) : 1);
               return (
                 <tr key={index}>
-                  <td className="p-2 border">{index + 1}</td>
-                  <td className="p-2 border">{item.item || item.name}</td>
-                  <td className="p-2 border text-right">{item.cost}</td>
-                  <td className="p-2 border text-center">{multiplier}</td>
-                  <td className="p-2 border text-right font-semibold">{calculateTotal(item).toFixed(2)}</td>
+                  <td className="p-3 border text-2xl text-center">{index + 1}</td>
+                  <td className="p-3 border text-2xl">{item.item || item.name}</td>
+                  <td className="p-3 border text-right text-2xl">{item.cost}</td>
+                  <td className="p-3 border text-center text-2xl">{multiplier}</td>
+                  <td className="p-3 border text-right font-bold text-2xl">{calculateTotal(item).toFixed(2)}</td>
                 </tr>
               );
             })}
@@ -684,82 +707,82 @@ const EstimateStep = () => {
         {/* Totals Section */}
         <div className="mt-4 grid grid-cols-2 gap-4">
           {/* Left side - Amount in Words and Account Details */}
-          <div className="text-base">
-            <div className="font-semibold mb-2">Amount in Words:</div>
-            <div className="italic mb-4">{numberToWords(Math.round(balanceDue))}</div>
+          <div className="text-2xl">
+            <div className="font-semibold mb-2 text-2xl">Amount in Words:</div>
+            <div className="italic mb-4 text-2xl">{numberToWords(Math.round(balanceDue))}</div>
             
             {/* Account Details */}
             <div className="mt-4 pt-4 border-t">
-              <div className="font-semibold mb-2">Account Details:</div>
-              <div><strong>MALWA TROLLEY</strong></div>
-              <div>ACC. NO.: 917020005504917</div>
-              <div>IFSC: UTIB0002512</div>
-              <div>AXIS BANK PALDA INDORE</div>
+              <div className="font-semibold mb-2 text-2xl">Account Details:</div>
+              <div className="text-2xl"><strong>MALWA TROLLEY</strong></div>
+              <div className="text-2xl">ACC. NO.: 917020005504917</div>
+              <div className="text-2xl">IFSC: UTIB0002512</div>
+              <div className="text-2xl">AXIS BANK PALDA INDORE</div>
             </div>
           </div>
           
           {/* Right side - Totals and Signature */}
           <div>
-            <div className="text-base">
-              <div className="flex justify-between border-b py-1">
-                <span>Subtotal:</span>
-                <span>₹{subTotal.toFixed(2)}</span>
+            <div className="text-2xl">
+              <div className="flex justify-between border-b py-2">
+                <span className="text-2xl">Subtotal:</span>
+                <span className="text-2xl font-bold">₹{subTotal.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between border-b py-1">
-                <span>Discount:</span>
+              <div className="flex justify-between border-b py-2">
+                <span className="text-2xl">Discount:</span>
                 <input
                   type="number"
                   value={discount}
                   onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-                  className="w-20 border px-2 py-1 text-right text-sm"
+                  className="w-28 border px-3 py-2 text-right text-2xl"
                   placeholder="0.00"
                 />
               </div>
-              <div className="flex justify-between border-b py-1">
-                <span>Round Off:</span>
+              <div className="flex justify-between border-b py-2">
+                <span className="text-2xl">Round Off:</span>
                 <input
                   type="number"
                   step="0.01"
                   value={roundOff}
                   onChange={(e) => setRoundOff(parseFloat(e.target.value) || 0)}
-                  className="w-20 border px-2 py-1 text-right text-sm"
+                  className="w-28 border px-3 py-2 text-right text-2xl"
                   placeholder="0.00"
                 />
               </div>
-              <div className="flex justify-between font-bold text-lg py-2 border-t-2">
-                <span>Total:</span>
-                <span>₹{(totalAfterDiscount + parseFloat(roundOff || 0)).toFixed(2)}</span>
+              <div className="flex justify-between font-bold text-3xl py-3 border-t-2">
+                <span className="text-3xl">Total:</span>
+                <span className="text-3xl">₹{(totalAfterDiscount + parseFloat(roundOff || 0)).toFixed(2)}</span>
               </div>
-              <div className="flex justify-between border-b py-1">
+              <div className="flex justify-between border-b py-2">
                 <div className="flex gap-2 items-center">
                   <button
                     type="button"
                     onClick={() => setIsCashReceiptModalOpen(true)}
                     disabled={!details.partyName}
-                    className="px-2 py-1 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 font-bold text-sm disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
+                    className="px-3 py-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:bg-blue-50 dark:hover:bg-gray-700 font-bold text-2xl disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                     style={{
                       textShadow: '1px 1px 2px rgba(0,0,0,0.3)',
                       filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.2))',
-                      minWidth: '35px'
+                      minWidth: '40px'
                     }}
                     title="Record Advance Payment"
                   >
                     ₹
                   </button>
-                  <span>Advance Payment:</span>
+                  <span className="text-2xl">Advance Payment:</span>
                 </div>
-                <span className="text-right">₹{advancePayment.toFixed(2)}</span>
+                <span className="text-right text-2xl font-bold">₹{(advancePayment || 0).toFixed(2)}</span>
               </div>
-              <div className="flex justify-between font-bold text-lg py-2 border-t-2">
-                <span>Balance Due:</span>
-                <span>₹{balanceDue.toFixed(2)}</span>
+              <div className="flex justify-between font-bold text-3xl py-3 border-t-2">
+                <span className="text-3xl">Balance Due:</span>
+                <span className="text-3xl text-red-600">₹{balanceDue.toFixed(2)}</span>
               </div>
             </div>
             
             {/* Authorized Signature */}
-            <div className="mt-8 text-right">
-              <div className="inline-block border-t border-black pt-2 px-8">
-                <div className="font-semibold">Authorized Signature</div>
+            <div className="mt-12 text-right">
+              <div className="inline-block border-t-2 border-black pt-3 px-12">
+                <div className="font-semibold text-2xl">Authorized Signature</div>
               </div>
             </div>
           </div>

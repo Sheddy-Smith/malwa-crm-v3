@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Trash2, Plus, Eye, Printer, Download, Edit } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { broadcastDataChange } from '@/utils/dataSync';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -612,6 +613,15 @@ const Challan = () => {
 
       if (!errorOccurred) {
         toast.success(`Purchase Challan saved successfully with ${challanData.materials.length} material(s)`);
+        
+        // Broadcast data change to supplier ledger
+        broadcastDataChange('purchase', 'created', {
+          purchase_id: challanId,
+          supplier_id: challanData.supplier_id,
+          challan_no: challanData.challan_no,
+          amount: challanData.total_amount
+        });
+        
         setShowForm(false);
         loadChallans();
       } else {

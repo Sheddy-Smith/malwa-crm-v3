@@ -169,8 +169,11 @@ const VoucherForm = ({ voucher, onSave, onCancel, preselectedPayee }) => {
             name="payee_type"
             value={formData.payee_type}
             onChange={handleChange}
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
+            className={`w-full p-2 border border-gray-300 rounded-lg dark:bg-dark-card dark:border-gray-600 dark:text-dark-text ${
+              preselectedPayee ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+            }`}
             required
+            disabled={!!preselectedPayee}
           >
             <option value="vendor">Vendor (Service Provider)</option>
             <option value="labour">Labour (Worker)</option>
@@ -188,8 +191,11 @@ const VoucherForm = ({ voucher, onSave, onCancel, preselectedPayee }) => {
               name="payee_id"
               value={formData.payee_id}
               onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
+              className={`w-full p-2 border border-gray-300 rounded-lg dark:bg-dark-card dark:border-gray-600 dark:text-dark-text ${
+                preselectedPayee ? 'bg-gray-100 cursor-not-allowed' : 'bg-white'
+              }`}
               required
+              disabled={!!preselectedPayee}
             >
               <option value="">Select...</option>
               {getPayeeOptions().map((payee) => (

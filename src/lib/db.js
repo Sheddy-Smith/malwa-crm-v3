@@ -1,5 +1,5 @@
 const DB_NAME = 'malwa_erp_db';
-const DB_VERSION = 9; // v9: Added labour_attendance and weekly_balances stores
+const DB_VERSION = 10; // v10: Added rate_history and purchase_challan_items stores
 
 let db = null;
 
@@ -61,6 +61,8 @@ const STORES = {
   accounts: 'id',
   purchases: 'id',
   purchase_items: 'id',
+  purchase_challan_items: 'id',
+  rate_history: 'id',
   gst_accounts: 'id',
   ledger_views: 'id',
   // Customer Module Stores
