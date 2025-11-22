@@ -6,6 +6,7 @@
 
 import { dbOperations, dbTransaction } from '@/lib/db';
 import { generateUUID } from './jobModuleHelpers';
+import { broadcastDataChange } from './dataSync';
 
 /**
  * SUPPLIER → INVENTORY → ACCOUNTS Integration
@@ -200,6 +201,12 @@ export const createPurchaseInvoice = async (purchaseData) => {
       });
     });
 
+    // Broadcast data changes for real-time updates
+    broadcastDataChange('purchases', 'add', purchase);
+    broadcastDataChange('stock_movements', 'add', stockMovement);
+    broadcastDataChange('supplier_ledger_entries', 'add', ledgerEntry);
+    broadcastDataChange('journal_entries', 'add', journalEntry);
+
     return {
       success: true,
       purchaseId,
@@ -331,6 +338,11 @@ export const createSupplierPayment = async (paymentData) => {
         created_at: currentDate
       });
     });
+
+    // Broadcast data changes for real-time updates
+    broadcastDataChange('vouchers', 'add', voucher);
+    broadcastDataChange('supplier_ledger_entries', 'add', ledgerEntry);
+    broadcastDataChange('journal_entries', 'add', journalEntry);
 
     return {
       success: true,
@@ -523,6 +535,16 @@ export const createSalesInvoiceWithStock = async (invoiceData) => {
         status: 'pending',
         created_at: currentDate
       });
+    });
+
+    // Broadcast data changes for real-time updates
+    broadcastDataChange('invoices', 'add', invoice);
+    broadcastDataChange('customer_ledger_entries', 'add', ledgerEntry);
+    if (paymentLedgerEntry) {
+      broadcastDataChange('customer_ledger_entries', 'add', paymentLedgerEntry);
+    }
+    stockMovements.forEach(sm => {
+      broadcastDataChange('stock_movements', 'add', sm);
     });
 
     return {

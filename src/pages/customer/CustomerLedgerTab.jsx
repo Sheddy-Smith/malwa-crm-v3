@@ -7,9 +7,14 @@ import {
   Printer,
   Search,
   RefreshCw,
+  TrendingUp,
+  TrendingDown,
+  AlertCircle,
+  DollarSign,
+  Calendar,
 } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import { subscribeToEntity } from '@/utils/dataSync';
 
 const CustomerLedgerTab = () => {
@@ -21,6 +26,12 @@ const CustomerLedgerTab = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [stats, setStats] = useState({
+    totalDebit: 0,
+    totalCredit: 0,
+    outstandingCredit15Plus: 0,
+    monthlyData: [],
+  });
 
   useEffect(() => {
     fetchCustomers();
@@ -78,13 +89,64 @@ const CustomerLedgerTab = () => {
     return () => unsubscribe();
   }, [selectedCustomerId]);
 
-  // Add polling for real-time updates every 5 seconds
+  // Listen for customer ledger entry changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('customer_ledger_entries', ({ action, data }) => {
+      console.log('[CustomerLedger] Ledger entry event received:', action, data);
+      if (data?.customer_id === selectedCustomerId) {
+        console.log('[CustomerLedger] Ledger entry change detected for current customer, refreshing...');
+        setTimeout(() => {
+          fetchLedgerData();
+          loadSelectedCustomer();
+        }, 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedCustomerId]);
+
+  // Listen for job changes (jobs create ledger entries)
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('jobs', ({ action, data }) => {
+      console.log('[CustomerLedger] Job event received:', action, data);
+      if (data?.customer_id === selectedCustomerId) {
+        console.log('[CustomerLedger] Job change detected for current customer, refreshing...');
+        setTimeout(() => {
+          fetchLedgerData();
+          loadSelectedCustomer();
+        }, 500); // Slightly longer delay for ledger entry creation
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedCustomerId]);
+
+  // Listen for customer changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('customers', ({ action, data }) => {
+      console.log('[CustomerLedger] Customer event received:', action, data);
+      if (data?.id === selectedCustomerId) {
+        console.log('[CustomerLedger] Current customer updated, refreshing...');
+        setTimeout(() => {
+          loadSelectedCustomer();
+        }, 100);
+      }
+      // Refresh customer list if any customer is added/deleted
+      if (action === 'add' || action === 'delete') {
+        fetchCustomers();
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedCustomerId]);
+
+  // Add polling for real-time updates every 3 seconds (reduced from 5)
   useEffect(() => {
     if (!selectedCustomerId) return;
 
     const pollInterval = setInterval(() => {
       fetchLedgerData();
-    }, 5000);
+    }, 3000); // More frequent polling for real-time feel
 
     return () => clearInterval(pollInterval);
   }, [selectedCustomerId, startDate, endDate]);
@@ -124,11 +186,11 @@ const CustomerLedgerTab = () => {
         filteredData = filteredData.filter(e => String(e.entry_date) <= endDate);
       }
 
-      // Sort by date
+      // Sort by date (recent first)
       filteredData.sort((a, b) => {
-        const dateCompare = String(a.entry_date).localeCompare(String(b.entry_date));
+        const dateCompare = String(b.entry_date).localeCompare(String(a.entry_date));
         if (dateCompare !== 0) return dateCompare;
-        return new Date(a.created_at || 0) - new Date(b.created_at || 0);
+        return new Date(b.created_at || 0) - new Date(a.created_at || 0);
       });
 
       // Calculate running balance
@@ -139,12 +201,63 @@ const CustomerLedgerTab = () => {
       });
 
       setLedgerEntries(entriesWithBalance);
+      calculateStats(entriesWithBalance);
     } catch (error) {
       console.error('Error fetching ledger:', error);
       toast.error('Failed to load ledger data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateStats = (entries) => {
+    const totalDebit = entries.reduce((sum, e) => sum + parseFloat(e.debit || 0), 0);
+    const totalCredit = entries.reduce((sum, e) => sum + parseFloat(e.credit || 0), 0);
+    
+    // Find credits older than 15 days with outstanding balance
+    const fifteenDaysAgo = new Date();
+    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+    
+    const outstandingCredit15Plus = entries.filter(e => {
+      const entryDate = new Date(e.entry_date);
+      return entryDate < fifteenDaysAgo && parseFloat(e.credit || 0) > 0;
+    }).reduce((sum, e) => sum + parseFloat(e.credit || 0), 0);
+    
+    // Calculate monthly data (last 4 months)
+    const monthlyMap = new Map();
+    const today = new Date();
+    
+    for (let i = 0; i < 4; i++) {
+      const monthDate = new Date(today.getFullYear(), today.getMonth() - i, 1);
+      const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, '0')}`;
+      const monthLabel = monthDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      
+      monthlyMap.set(monthKey, {
+        month: monthLabel,
+        debit: 0,
+        credit: 0,
+      });
+    }
+    
+    entries.forEach(entry => {
+      const entryDate = new Date(entry.entry_date);
+      const monthKey = `${entryDate.getFullYear()}-${String(entryDate.getMonth() + 1).padStart(2, '0')}`;
+      
+      if (monthlyMap.has(monthKey)) {
+        const monthData = monthlyMap.get(monthKey);
+        monthData.debit += parseFloat(entry.debit || 0);
+        monthData.credit += parseFloat(entry.credit || 0);
+      }
+    });
+    
+    const monthlyData = Array.from(monthlyMap.values()).reverse();
+    
+    setStats({
+      totalDebit,
+      totalCredit,
+      outstandingCredit15Plus,
+      monthlyData,
+    });
   };
 
   const filteredEntries = useMemo(() => {
@@ -272,99 +385,221 @@ const CustomerLedgerTab = () => {
   return (
     <>
       <div className="space-y-6">
+        {/* Filters and Actions */}
         <Card>
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-dark-text">
-              Customer Ledger
-            </h2>
-          </div>
-
-          {/* Customer Selection and Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                Select Customer *
-              </label>
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-              >
-                <option value="">Choose a customer</option>
-                {customers.map(customer => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name} {customer.phone && `(${customer.phone})`}
-                  </option>
-                ))}
-              </select>
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-dark-text">
+                Customer Ledger
+              </h2>
+              {selectedCustomerId && (
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" size="sm" onClick={fetchLedgerData}>
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                    Refresh
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handleExportCSV}>
+                    <Download className="h-4 w-4 mr-2" />
+                    CSV
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handleSavePDF}>
+                    <Download className="h-4 w-4 mr-2" />
+                    PDF
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handlePrint}>
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </Button>
+                </div>
+              )}
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                Start Date
-              </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-              />
-            </div>
+            {/* Customer Selection and Filters */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                  Select Customer *
+                </label>
+                <select
+                  value={selectedCustomerId}
+                  onChange={(e) => setSelectedCustomerId(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                >
+                  <option value="">Choose a customer</option>
+                  {customers.map(customer => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} {customer.phone && `(${customer.phone})`}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                End Date
-              </label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                Search
-              </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                  Start Date
+                </label>
                 <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Search entries..."
-                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                  End Date
+                </label>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                  Search
+                </label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Search entries..."
+                    className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                  />
+                </div>
               </div>
             </div>
           </div>
+        </Card>
 
-          {/* Action Buttons */}
-          {selectedCustomerId && (
-            <div className="flex flex-wrap gap-2 mb-6">
-              <Button variant="secondary" size="sm" onClick={fetchLedgerData}>
-                <RefreshCw className="h-4 w-4 mr-2" />
-                Refresh
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleExportCSV}>
-                <Download className="h-4 w-4 mr-2" />
-                Export CSV
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handleSavePDF}>
-                <Download className="h-4 w-4 mr-2" />
-                Save PDF
-              </Button>
-              <Button variant="secondary" size="sm" onClick={handlePrint}>
-                <Printer className="h-4 w-4 mr-2" />
-                Print
-              </Button>
+        {/* Colorful Metric Blocks */}
+        {selectedCustomerId && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Total Debit */}
+            <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-blue-100 text-sm font-medium mb-1">Total Debit (Sales)</p>
+                  <p className="text-2xl font-bold">₹{(stats.totalDebit / 1000).toFixed(1)}K</p>
+                </div>
+                <div className="bg-white/20 p-3 rounded-lg">
+                  <TrendingUp className="h-8 w-8" />
+                </div>
+              </div>
             </div>
-          )}
 
-          {/* Customer Info Card */}
-          {selectedCustomer && (
-            <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+            {/* Total Credit */}
+            <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-green-100 text-sm font-medium mb-1">Total Credit (Payments)</p>
+                  <p className="text-2xl font-bold">₹{(stats.totalCredit / 1000).toFixed(1)}K</p>
+                </div>
+                <div className="bg-white/20 p-3 rounded-lg">
+                  <TrendingDown className="h-8 w-8" />
+                </div>
+              </div>
+            </div>
+
+            {/* Outstanding 15+ Days */}
+            <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-red-100 text-sm font-medium mb-1">Credit 15+ Days Old</p>
+                  <p className="text-2xl font-bold">₹{(stats.outstandingCredit15Plus / 1000).toFixed(1)}K</p>
+                </div>
+                <div className="bg-white/20 p-3 rounded-lg">
+                  <AlertCircle className="h-8 w-8" />
+                </div>
+              </div>
+            </div>
+
+            {/* Current Balance */}
+            <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-purple-100 text-sm font-medium mb-1">Current Balance</p>
+                  <p className="text-2xl font-bold">
+                    ₹{(Math.abs(finalBalance) / 1000).toFixed(1)}K
+                    <span className="text-sm ml-1">{finalBalance > 0 ? '(Dr)' : finalBalance < 0 ? '(Cr)' : ''}</span>
+                  </p>
+                </div>
+                <div className="bg-white/20 p-3 rounded-lg">
+                  <DollarSign className="h-8 w-8" />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Monthly Summary Table */}
+        {selectedCustomerId && stats.monthlyData.length > 0 && (
+          <Card>
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <Calendar className="h-5 w-5 text-brand-red" />
+                <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">
+                  Monthly Summary (Last 4 Months)
+                </h3>
+              </div>
+              
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="px-4 py-1.5 text-left text-sm font-semibold text-gray-700 dark:text-dark-text">Month</th>
+                      <th className="px-4 py-1.5 text-center text-sm font-semibold text-blue-600 dark:text-blue-400">Debit (₹)</th>
+                      <th className="px-4 py-1.5 text-center text-sm font-semibold text-green-600 dark:text-green-400">Credit (₹)</th>
+                      <th className="px-4 py-1.5 text-center text-sm font-semibold text-gray-700 dark:text-dark-text">Net (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stats.monthlyData.map((month, index) => {
+                      const net = month.debit - month.credit;
+                      return (
+                        <tr 
+                          key={index} 
+                          className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                        >
+                          <td className="px-4 py-1.5 text-sm font-medium text-gray-900 dark:text-dark-text">{month.month}</td>
+                          <td className="px-4 py-1.5 text-center">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                              {month.debit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          </td>
+                          <td className="px-4 py-1.5 text-center">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
+                              {month.credit.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                            </span>
+                          </td>
+                          <td className="px-4 py-1.5 text-center">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                              net > 0 ? 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300' : 
+                              net < 0 ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' : 
+                              'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-300'
+                            }`}>
+                              {Math.abs(net).toLocaleString('en-IN', { minimumFractionDigits: 2 })} {net > 0 ? '(Dr)' : net < 0 ? '(Cr)' : ''}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* Customer Info Card */}
+        {selectedCustomer && (
+          <Card>
+            <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div>
                   <p className="text-sm text-gray-600 dark:text-gray-400">Customer Name</p>
@@ -379,18 +614,24 @@ const CustomerLedgerTab = () => {
                   <p className="font-semibold dark:text-dark-text">{selectedCustomer.email || 'N/A'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Current Balance</p>
-                  <p className={`font-bold text-lg ${finalBalance > 0 ? 'text-red-600' : finalBalance < 0 ? 'text-green-600' : 'text-gray-900 dark:text-dark-text'}`}>
-                    ₹ {Math.abs(finalBalance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    {finalBalance > 0 ? ' (Dr)' : finalBalance < 0 ? ' (Cr)' : ''}
+                  <p className="text-sm text-gray-600 dark:text-gray-400">Opening Balance</p>
+                  <p className="font-semibold dark:text-dark-text">
+                    ₹{parseFloat(selectedCustomer.opening_balance || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
               </div>
             </div>
-          )}
+          </Card>
+        )}
 
-          {/* Ledger Table */}
-          {!selectedCustomerId ? (
+        {/* Ledger Table */}
+        <Card>
+          <div className="space-y-4">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">
+              Ledger Entries
+            </h3>
+
+            {!selectedCustomerId ? (
             <div className="text-center py-12">
               <p className="text-gray-500 dark:text-gray-400">Please select a customer to view ledger</p>
             </div>
@@ -413,12 +654,12 @@ const CustomerLedgerTab = () => {
               <table className="w-full text-sm border border-gray-200 dark:border-gray-700">
                 <thead className="bg-gray-100 dark:bg-gray-800 text-left">
                   <tr>
-                    <th className="p-3 border-b dark:border-gray-700">Date</th>
-                    <th className="p-3 border-b dark:border-gray-700">Type</th>
-                    <th className="p-3 border-b dark:border-gray-700">Description</th>
-                    <th className="p-3 text-right border-b dark:border-gray-700">Debit (₹)</th>
-                    <th className="p-3 text-right border-b dark:border-gray-700">Credit (₹)</th>
-                    <th className="p-3 text-right border-b dark:border-gray-700">Balance (₹)</th>
+                    <th className="px-3 py-1.5 border-b dark:border-gray-700">Date</th>
+                    <th className="px-3 py-1.5 border-b dark:border-gray-700">Type</th>
+                    <th className="px-3 py-1.5 border-b dark:border-gray-700">Description</th>
+                    <th className="px-3 py-1.5 text-right border-b dark:border-gray-700">Debit (₹)</th>
+                    <th className="px-3 py-1.5 text-right border-b dark:border-gray-700">Credit (₹)</th>
+                    <th className="px-3 py-1.5 text-right border-b dark:border-gray-700">Balance (₹)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -427,10 +668,10 @@ const CustomerLedgerTab = () => {
                       key={entry.id || index}
                       className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                     >
-                      <td className="p-3 text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                         {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                       </td>
-                      <td className="p-3 text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                         <span className={`px-2 py-1 rounded text-xs ${
                           entry.type === 'invoice' || entry.reference_type === 'invoice' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' :
                           entry.type === 'challan' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
@@ -440,21 +681,16 @@ const CustomerLedgerTab = () => {
                           {entry.type || entry.reference_type || 'Entry'}
                         </span>
                       </td>
-                      <td className="p-3 text-gray-700 dark:text-gray-300">
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-gray-300">
                         {entry.description}
-                        {entry.reference_id && (
-                          <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">
-                            (Ref: {entry.reference_id})
-                          </span>
-                        )}
                       </td>
-                      <td className="p-3 text-right text-gray-900 dark:text-white font-medium">
+                      <td className="px-3 py-1.5 text-right text-gray-900 dark:text-white font-medium">
                         {entry.debit > 0 ? `₹ ${parseFloat(entry.debit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
                       </td>
-                      <td className="p-3 text-right text-gray-900 dark:text-white font-medium">
+                      <td className="px-3 py-1.5 text-right text-gray-900 dark:text-white font-medium">
                         {entry.credit > 0 ? `₹ ${parseFloat(entry.credit).toLocaleString('en-IN', { minimumFractionDigits: 2 })}` : '-'}
                       </td>
-                      <td className={`p-3 text-right font-bold ${
+                      <td className={`px-3 py-1.5 text-right font-bold ${
                         entry.balance > 0 ? 'text-red-600' : 
                         entry.balance < 0 ? 'text-green-600' : 
                         'text-gray-900 dark:text-white'
@@ -466,7 +702,7 @@ const CustomerLedgerTab = () => {
                 </tbody>
                 <tfoot className="bg-gray-100 dark:bg-gray-800 font-bold">
                   <tr>
-                    <td colSpan="3" className="p-3 border-t dark:border-gray-700 text-right dark:text-dark-text">
+                    <td colSpan="3" className="px-3 py-1.5 border-t dark:border-gray-700 text-right dark:text-dark-text">
                       Totals:
                     </td>
                     <td className="p-3 text-right border-t dark:border-gray-700 dark:text-dark-text">
@@ -488,6 +724,7 @@ const CustomerLedgerTab = () => {
               </table>
             </div>
           )}
+          </div>
         </Card>
       </div>
     </>

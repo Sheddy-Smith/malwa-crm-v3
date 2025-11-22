@@ -3,9 +3,11 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
+import PrintableView from '@/components/PrintableView';
 import { toast } from 'sonner';
-import { PlusCircle, Edit, Trash2, Download, Printer, Search, AlertTriangle } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Download, FileText, Printer, Search, AlertTriangle, Package, TrendingDown, TrendingUp, DollarSign } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { exportToCSV as exportCSV, exportToPDF, printContent, formatCurrency, formatDate } from '@/utils/exportHelpers';
 
 const StockItemForm = ({ item, categories, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
@@ -323,6 +325,12 @@ const StockTab = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
   const [stockFilter, setStockFilter] = useState('all');
+  const [stats, setStats] = useState({
+    totalItems: 0,
+    totalStockByUnit: {},
+    lowStockItems: 0,
+    totalValuation: 0,
+  });
 
   useEffect(() => {
     fetchCategories();
@@ -345,6 +353,8 @@ const StockTab = () => {
       // Get all stock movements from purchase invoices and challans
       const allMovements = await dbOperations.getAll('stock_movements') || [];
       const categories = await dbOperations.getAll('inventory_categories') || [];
+      const rateHistory = await dbOperations.getAll('rate_history') || [];
+      const inventoryItems = await dbOperations.getAll('inventory_items') || [];
       
       // Filter movements from purchase and purchase_challan only
       const validMovements = allMovements.filter(m => 
@@ -364,7 +374,8 @@ const StockTab = () => {
             category_id: movement.category_id,
             unit: movement.unit,
             current_stock: 0,
-            movements: []
+            movements: [],
+            rates: []
           });
         }
         
@@ -380,9 +391,28 @@ const StockTab = () => {
         item.movements.push(movement);
       });
       
-      // Convert map to array and enrich with category names
+      // Convert map to array and enrich with category names, rates, and reorder levels
       const stockArray = Array.from(stockMap.values()).map((item, index) => {
         const category = categories.find(cat => cat.id === item.category_id);
+        
+        // Find latest rate from rate_history for this item
+        const itemRates = rateHistory.filter(r => 
+          r.item_name?.toLowerCase() === item.name?.toLowerCase() && 
+          r.category_id === item.category_id
+        ).sort((a, b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at));
+        
+        const latestRate = itemRates.length > 0 ? parseFloat(itemRates[0].rate || 0) : 0;
+        
+        // Find reorder level from inventory_items if exists
+        const inventoryItem = inventoryItems.find(inv => 
+          inv.name?.toLowerCase() === item.name?.toLowerCase() && 
+          inv.category_id === item.category_id
+        );
+        
+        const reorderLevel = inventoryItem ? parseFloat(inventoryItem.reorder_level || 0) : 0;
+        const costPrice = latestRate || (inventoryItem ? parseFloat(inventoryItem.purchase_price || 0) : 0);
+        const valuation = item.current_stock * costPrice;
+        
         return {
           id: `stock_${index}`,
           code: `ITEM-${String(index + 1).padStart(4, '0')}`,
@@ -391,9 +421,9 @@ const StockTab = () => {
           category: category ? { id: category.id, name: category.name } : null,
           unit: item.unit,
           current_stock: item.current_stock,
-          reorder_level: 0,
-          cost_price: 0,
-          valuation: 0
+          reorder_level: reorderLevel,
+          cost_price: costPrice,
+          valuation: valuation
         };
       });
       
@@ -401,12 +431,44 @@ const StockTab = () => {
       stockArray.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       
       setStockItems(stockArray);
+      calculateStats(stockArray);
     } catch (error) {
       console.error('Error fetching stock items:', error);
       toast.error('Failed to load stock items');
     } finally {
       setLoading(false);
     }
+  };
+
+  const calculateStats = (items) => {
+    const totalItems = items.length;
+    
+    // Group stock by unit
+    const stockByUnit = {};
+    items.forEach(item => {
+      const unit = item.unit || 'pcs';
+      const qty = parseFloat(item.current_stock || 0);
+      stockByUnit[unit] = (stockByUnit[unit] || 0) + qty;
+    });
+    
+    // Count low stock items
+    const lowStockItems = items.filter(item => 
+      parseFloat(item.current_stock || 0) <= parseFloat(item.reorder_level || 0) && 
+      parseFloat(item.current_stock || 0) > 0
+    ).length;
+    
+    // Calculate total valuation
+    const totalValuation = items.reduce(
+      (sum, item) => sum + parseFloat(item.current_stock || 0) * parseFloat(item.cost_price || 0),
+      0
+    );
+    
+    setStats({
+      totalItems,
+      totalStockByUnit: stockByUnit,
+      lowStockItems,
+      totalValuation,
+    });
   };
 
   const handleAddItem = async (itemData) => {
@@ -492,38 +554,97 @@ const StockTab = () => {
     }
   };
 
-  const exportToCSV = () => {
-    const headers = ['Item Code', 'Item Name', 'Category', 'Current Stock', 'Unit', 'Reorder Level', 'Cost Price', 'Selling Price', 'Valuation', 'Location'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredItems.map((item) =>
-        [
-          item.code || '',
-          item.name,
-          item.category?.name || '',
-          item.current_stock || 0,
-          item.unit,
-          item.reorder_level || 0,
-          item.cost_price || 0,
-          item.selling_price || 0,
-          (parseFloat(item.current_stock || 0) * parseFloat(item.cost_price || 0)).toFixed(2),
-          item.location || '',
-        ].join(',')
-      ),
-    ].join('\n');
+  const handleExportCSV = () => {
+    try {
+      if (filteredItems.length === 0) {
+        toast.warning('No data to export');
+        return;
+      }
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stock_list_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    toast.success('Stock list exported to CSV');
+      const headers = ['Item Code', 'Item Name', 'Category', 'Current Stock', 'Unit', 'Reorder Level', 'Cost Price', 'Selling Price', 'Valuation', 'Location'];
+      const rows = filteredItems.map((item) => [
+        item.code || '',
+        item.name,
+        item.category?.name || '',
+        item.current_stock || 0,
+        item.unit,
+        item.reorder_level || 0,
+        formatCurrency(item.cost_price || 0),
+        formatCurrency(item.selling_price || 0),
+        formatCurrency(parseFloat(item.current_stock || 0) * parseFloat(item.cost_price || 0)),
+        item.location || '',
+      ]);
+
+      const success = exportCSV(headers, rows, `stock_list_${new Date().toISOString().split('T')[0]}.csv`);
+      
+      if (success) {
+        toast.success('Stock list exported to CSV');
+      } else {
+        toast.error('Failed to export CSV');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export CSV');
+    }
+  };
+
+  const handleSavePDF = () => {
+    try {
+      if (filteredItems.length === 0) {
+        toast.warning('No data to save');
+        return;
+      }
+
+      const tableData = filteredItems.map((item) => [
+        item.code || '',
+        item.name,
+        item.category?.name || '',
+        `${item.current_stock || 0} ${item.unit}`,
+        item.reorder_level || 0,
+        formatCurrency(item.cost_price || 0),
+        formatCurrency(parseFloat(item.current_stock || 0) * parseFloat(item.cost_price || 0)),
+      ]);
+
+      const success = exportToPDF({
+        title: 'Stock List Report',
+        subtitle: `Generated on ${formatDate(new Date())}`,
+        headerInfo: [
+          { label: 'Total Items', value: filteredItems.length },
+          { label: 'Low Stock Items', value: stats.lowStockItems },
+          { label: 'Total Valuation', value: formatCurrency(totalValuation) },
+        ],
+        summaryCards: [
+          { label: 'Total Items', value: filteredItems.length },
+          { label: 'Low Stock Items', value: stats.lowStockItems },
+          { label: 'Total Valuation', value: formatCurrency(totalValuation) },
+        ],
+        tableHeaders: ['Code', 'Item Name', 'Category', 'Stock', 'Reorder', 'Cost Price', 'Valuation'],
+        tableData,
+        filename: `stock_list_${new Date().toISOString().split('T')[0]}.pdf`,
+        orientation: 'l'
+      });
+
+      if (success) {
+        toast.success('Stock list saved as PDF');
+      } else {
+        toast.error('Failed to generate PDF');
+      }
+    } catch (error) {
+      console.error('PDF error:', error);
+      toast.error('Failed to generate PDF');
+    }
   };
 
   const handlePrint = () => {
-    window.print();
-    toast.success('Print dialog opened');
+    try {
+      const success = printContent('stock-list-print-view');
+      if (!success) {
+        toast.error('Failed to print');
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error('Failed to print');
+    }
   };
 
   const filteredItems = stockItems.filter((item) => {
@@ -556,7 +677,7 @@ const StockTab = () => {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
@@ -604,67 +725,67 @@ const StockTab = () => {
         message={`Are you sure you want to delete "${itemToDelete?.name}"? This action cannot be undone.`}
       />
 
+      {/* Filters and Actions */}
       <Card>
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">Stock List</h3>
-          <Button
-            onClick={() => {
-              if (categories.length === 0) {
-                toast.error('Please add categories first in the "Manage Categories" tab');
-                return;
-              }
-              setIsModalOpen(true);
-            }}
-          >
-            <PlusCircle className="h-4 w-4 mr-2" />
-            Add Stock Item
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-          <div className="relative md:col-span-2">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by item name, code, or category..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            />
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">Stock List</h3>
+            <Button
+              onClick={() => {
+                if (categories.length === 0) {
+                  toast.error('Please add categories first in the "Manage Categories" tab');
+                  return;
+                }
+                setIsModalOpen(true);
+              }}
+            >
+              <PlusCircle className="h-4 w-4 mr-2" />
+              Add Stock Item
+            </Button>
           </div>
 
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          >
-            <option value="">All Categories</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="relative md:col-span-2">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by item name, code, or category..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+              />
+            </div>
 
-          <select
-            value={stockFilter}
-            onChange={(e) => setStockFilter(e.target.value)}
-            className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          >
-            <option value="all">All Stock</option>
-            <option value="low">Low Stock (Below Reorder)</option>
-            <option value="zero">Out of Stock</option>
-          </select>
-        </div>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            >
+              <option value="">All Categories</option>
+              {categories.map((cat) => (
+                <option key={cat.id} value={cat.id}>
+                  {cat.name}
+                </option>
+              ))}
+            </select>
 
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-sm text-gray-600 dark:text-dark-text-secondary">
-            Total Valuation: <span className="font-bold text-green-600 dark:text-green-400">
-              ₹{totalValuation.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </span>
+            <select
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value)}
+              className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            >
+              <option value="all">All Stock</option>
+              <option value="low">Low Stock (Below Reorder)</option>
+              <option value="zero">Out of Stock</option>
+            </select>
           </div>
-          <div className="flex items-center space-x-2">
-            <Button variant="secondary" onClick={exportToCSV}>
+
+          <div className="flex items-center justify-end space-x-2">
+            <Button variant="secondary" onClick={handleSavePDF}>
+              <FileText className="h-4 w-4 mr-2" />
+              Save PDF
+            </Button>
+            <Button variant="secondary" onClick={handleExportCSV}>
               <Download className="h-4 w-4 mr-2" />
               Export CSV
             </Button>
@@ -674,19 +795,91 @@ const StockTab = () => {
             </Button>
           </div>
         </div>
+      </Card>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+      {/* Colorful Metric Blocks */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Total Items */}
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-100 text-sm font-medium mb-1">Total Items</p>
+              <p className="text-3xl font-bold">{stats.totalItems}</p>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg">
+              <Package className="h-8 w-8" />
+            </div>
+          </div>
+        </div>
+
+        {/* Total Stock by Unit */}
+        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-green-100 text-sm font-medium">Total Stock</p>
+            <div className="bg-white/20 p-2 rounded-lg">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+          </div>
+          {Object.keys(stats.totalStockByUnit).length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(stats.totalStockByUnit).map(([unit, qty]) => (
+                <div key={unit} className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg">
+                  <span className="text-sm font-bold">{qty.toFixed(2)}</span>
+                  <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded uppercase font-medium">{unit}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-lg font-bold">0</p>
+          )}
+        </div>
+
+        {/* Low Stock Items */}
+        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-orange-100 text-sm font-medium mb-1">Low Stock Items</p>
+              <p className="text-3xl font-bold">{stats.lowStockItems}</p>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg">
+              <TrendingDown className="h-8 w-8" />
+            </div>
+          </div>
+        </div>
+
+        {/* Total Valuation */}
+        <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-purple-100 text-sm font-medium mb-1">Total Valuation</p>
+              <p className="text-2xl font-bold">₹{(stats.totalValuation / 1000).toFixed(1)}K</p>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg">
+              <DollarSign className="h-8 w-8" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stock Items Table */}
+      <Card>
+        <div className="space-y-4">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">
+            Stock Items Details
+          </h3>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-700 text-left">
               <tr>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Item Code</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Item Name</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Category</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Current Stock</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Reorder Level</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Cost Price</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Valuation</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300">Item Code</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300">Item Name</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300">Category</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300 text-right">Current Stock</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300 text-right">Reorder Level</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300 text-right">Cost Price</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300 text-right">Valuation</th>
+                <th className="px-3 py-1.5 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -701,10 +894,10 @@ const StockTab = () => {
                       key={item.id}
                       className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                     >
-                      <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
+                      <td className="px-3 py-1.5 text-gray-700 dark:text-dark-text-secondary">
                         {item.code || '-'}
                       </td>
-                      <td className="p-3 font-medium text-gray-900 dark:text-dark-text">
+                      <td className="px-3 py-1.5 font-medium text-gray-900 dark:text-dark-text">
                         {item.name}
                         {isOutOfStock && (
                           <AlertTriangle className="inline h-4 w-4 ml-2 text-red-500" title="Out of Stock" />
@@ -713,24 +906,24 @@ const StockTab = () => {
                           <AlertTriangle className="inline h-4 w-4 ml-2 text-orange-500" title="Low Stock" />
                         )}
                       </td>
-                      <td className="p-3">
+                      <td className="px-3 py-1.5">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
                           {item.category?.name || '-'}
                         </span>
                       </td>
-                      <td className={`p-3 text-right font-medium ${isOutOfStock ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-dark-text'}`}>
+                      <td className={`px-3 py-1.5 text-right font-medium ${isOutOfStock ? 'text-red-600 dark:text-red-400' : isLowStock ? 'text-orange-600 dark:text-orange-400' : 'text-gray-900 dark:text-dark-text'}`}>
                         {parseFloat(item.current_stock || 0).toFixed(2)} {item.unit}
                       </td>
-                      <td className="p-3 text-right text-gray-700 dark:text-dark-text-secondary">
+                      <td className="px-3 py-1.5 text-right text-gray-700 dark:text-dark-text-secondary">
                         {parseFloat(item.reorder_level || 0).toFixed(2)} {item.unit}
                       </td>
-                      <td className="p-3 text-right text-gray-700 dark:text-dark-text-secondary">
+                      <td className="px-3 py-1.5 text-right text-gray-700 dark:text-dark-text-secondary">
                         ₹{parseFloat(item.cost_price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3 text-right font-medium text-green-600 dark:text-green-400">
+                      <td className="px-3 py-1.5 text-right font-medium text-green-600 dark:text-green-400">
                         ₹{valuation.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="p-3 text-right">
+                      <td className="px-3 py-1.5 text-right">
                         <div className="flex justify-end items-center space-x-2">
                           <Button
                             variant="ghost"
@@ -784,13 +977,14 @@ const StockTab = () => {
               )}
             </tbody>
           </table>
-        </div>
-
-        {filteredItems.length > 0 && (
-          <div className="mt-4 text-sm text-gray-600 dark:text-dark-text-secondary">
-            Showing {filteredItems.length} of {stockItems.length} item(s)
           </div>
-        )}
+
+          {filteredItems.length > 0 && (
+            <div className="text-sm text-gray-600 dark:text-dark-text-secondary">
+              Showing {filteredItems.length} of {stockItems.length} item(s)
+            </div>
+          )}
+        </div>
       </Card>
     </div>
   );

@@ -45,6 +45,11 @@ const useAuthStore = create((set, get) => ({
 
   logout: async () => {
     await authService.signOut();
+    
+    // Clear permissions on logout
+    const permissionStore = await import('./permissionStore');
+    permissionStore.default.getState().clearPermissions();
+    
     set({
       isAuthenticated: false,
       user: null,

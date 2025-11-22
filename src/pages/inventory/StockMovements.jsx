@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import PrintableView from '@/components/PrintableView';
 import { toast } from 'sonner';
-import { Download, FileText, Printer, Search, ExternalLink } from 'lucide-react';
-import jsPDF from 'jspdf';
+import { Download, FileText, Printer, Search, ExternalLink, TrendingUp, TrendingDown, Package, AlertTriangle } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
+import { exportToCSV as exportCSV, exportToPDF, printContent, formatCurrency, formatDate } from '@/utils/exportHelpers';
 
 const DocumentDetailsModal = ({ documentId, documentType, onClose }) => {
   const [documentData, setDocumentData] = useState(null);
@@ -82,14 +83,6 @@ const DocumentDetailsModal = ({ documentId, documentType, onClose }) => {
               ).toLocaleDateString('en-GB')}
             </span>
           </div>
-          {documentData.total_amount !== undefined && (
-            <div>
-              <span className="text-gray-600 dark:text-dark-text-secondary">Amount:</span>
-              <span className="ml-2 font-medium text-green-600">
-                ₹{parseFloat(documentData.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-          )}
         </div>
       </div>
 
@@ -123,6 +116,52 @@ const StockMovements = () => {
     movementType: '',
     referenceType: '',
   });
+  const [stats, setStats] = useState({
+    totalMovements: 0,
+    totalIn: {},
+    totalOut: {},
+    hangingStock: 0,
+  });
+
+  useEffect(() => {
+    fetchMovements();
+  }, [filters]);
+
+  const calculateStats = (movementsData) => {
+    const totalMovements = movementsData.length;
+    
+    // Group IN movements by unit
+    const inByUnit = {};
+    movementsData.filter(m => m.movement_type === 'in').forEach(m => {
+      const unit = m.unit || 'pcs';
+      const qty = parseFloat(m.quantity || 0);
+      inByUnit[unit] = (inByUnit[unit] || 0) + qty;
+    });
+    
+    // Group OUT movements by unit
+    const outByUnit = {};
+    movementsData.filter(m => m.movement_type === 'out').forEach(m => {
+      const unit = m.unit || 'pcs';
+      const qty = parseFloat(m.quantity || 0);
+      outByUnit[unit] = (outByUnit[unit] || 0) + qty;
+    });
+    
+    // Calculate hanging stock (movements older than 15 days with no OUT movement)
+    const fifteenDaysAgo = new Date();
+    fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+    
+    const hangingStock = movementsData.filter(m => {
+      const movementDate = new Date(m.movement_date);
+      return movementDate < fifteenDaysAgo && m.movement_type === 'in';
+    }).length;
+
+    setStats({
+      totalMovements,
+      totalIn: inByUnit,
+      totalOut: outByUnit,
+      hangingStock,
+    });
+  };
 
   useEffect(() => {
     fetchMovements();
@@ -171,40 +210,34 @@ const StockMovements = () => {
           document_no: documentNo
         };
       }));
-      
+
       // Apply filters
-      let filteredData = enrichedMovements;
-      
-      if (filters.startDate) {
-        filteredData = filteredData.filter(m => m.movement_date >= filters.startDate);
-      }
-      if (filters.endDate) {
-        filteredData = filteredData.filter(m => m.movement_date <= filters.endDate);
-      }
-      if (filters.movementType) {
-        filteredData = filteredData.filter(m => m.movement_type === filters.movementType);
-      }
-      if (filters.referenceType) {
-        filteredData = filteredData.filter(m => m.reference_type === filters.referenceType);
-      }
-      if (filters.itemSearch) {
-        filteredData = filteredData.filter(m =>
-          m.material_name?.toLowerCase().includes(filters.itemSearch.toLowerCase()) ||
-          m.category_name?.toLowerCase().includes(filters.itemSearch.toLowerCase())
-        );
-      }
-      
-      // Sort by date descending
-      filteredData.sort((a, b) => {
-        const dateA = new Date(a.movement_date || a.created_at);
-        const dateB = new Date(b.movement_date || b.created_at);
-        return dateB - dateA;
+      let filtered = enrichedMovements.filter((movement) => {
+        const matchesSearch = !filters.itemSearch || 
+          movement.item_name?.toLowerCase().includes(filters.itemSearch.toLowerCase());
+        
+        const matchesStartDate = !filters.startDate || 
+          new Date(movement.movement_date) >= new Date(filters.startDate);
+        
+        const matchesEndDate = !filters.endDate || 
+          new Date(movement.movement_date) <= new Date(filters.endDate);
+        
+        const matchesMovementType = !filters.movementType || 
+          movement.movement_type === filters.movementType;
+        
+        const matchesReferenceType = !filters.referenceType || 
+          movement.reference_type === filters.referenceType;
+        
+        return matchesSearch && matchesStartDate && matchesEndDate && 
+               matchesMovementType && matchesReferenceType;
       });
+
+      filtered.sort((a, b) => new Date(b.movement_date) - new Date(a.movement_date));
       
-      setMovements(filteredData);
+      setMovements(filtered);
+      calculateStats(filtered);
     } catch (error) {
-      console.error('Error fetching movements:', error);
-      toast.error('Failed to load stock movements');
+      console.error('Error fetching stock movements:', error);
     } finally {
       setLoading(false);
     }
@@ -226,78 +259,102 @@ const StockMovements = () => {
     }
   };
 
-  const exportToCSV = () => {
-    const headers = ['Date', 'Item Name', 'Category', 'Type', 'Quantity', 'Reference Type', 'Reference No', 'Notes'];
-    const csvContent = [
-      headers.join(','),
-      ...movements.map((m) =>
-        [
-          m.movement_date,
-          m.item?.name || '',
-          m.item?.category?.name || '',
-          m.movement_type?.toUpperCase(),
-          m.quantity,
-          m.reference_type || '',
-          m.reference_no || '',
-          m.notes || '',
-        ].join(',')
-      ),
-    ].join('\n');
+  const handleExportCSV = () => {
+    try {
+      if (movements.length === 0) {
+        toast.warning('No data to export');
+        return;
+      }
 
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `stock_movements_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    toast.success('Stock movements exported to CSV');
+      const headers = ['Date', 'Item Name', 'Category', 'Type', 'Quantity', 'Reference Type', 'Reference No', 'Notes'];
+      const rows = movements.map((m) => [
+        formatDate(m.movement_date),
+        m.item?.name || '',
+        m.item?.category?.name || '',
+        m.movement_type?.toUpperCase(),
+        `${m.quantity} ${m.item?.unit || ''}`,
+        m.reference_type || '',
+        m.reference_no || '',
+        m.notes || '',
+      ]);
+
+      const success = exportCSV(headers, rows, `stock_movements_${new Date().toISOString().split('T')[0]}.csv`);
+      
+      if (success) {
+        toast.success('Stock movements exported to CSV');
+      } else {
+        toast.error('Failed to export CSV');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error('Failed to export CSV');
+    }
   };
 
-  const saveToPDF = () => {
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text('Stock Movements History', 14, 15);
-    doc.setFontSize(10);
-    doc.text(
-      `Period: ${filters.startDate || 'All'} to ${filters.endDate || 'All'}`,
-      14,
-      22
-    );
-    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, 14, 27);
-
-    let yPos = 35;
-    doc.setFontSize(9);
-    doc.text('Date', 14, yPos);
-    doc.text('Item', 40, yPos);
-    doc.text('Type', 100, yPos);
-    doc.text('Qty', 120, yPos);
-    doc.text('Ref No', 150, yPos);
-
-    yPos += 5;
-    movements.forEach((m) => {
-      if (yPos > 280) {
-        doc.addPage();
-        yPos = 20;
+  const handleSavePDF = () => {
+    try {
+      if (movements.length === 0) {
+        toast.warning('No data to save');
+        return;
       }
-      doc.text(m.movement_date, 14, yPos);
-      doc.text(m.item?.name?.substring(0, 25) || '', 40, yPos);
-      doc.text(m.movement_type?.toUpperCase() || '', 100, yPos);
-      doc.text(`${m.quantity} ${m.item?.unit || ''}`, 120, yPos);
-      doc.text(m.reference_no || '', 150, yPos);
-      yPos += 6;
-    });
 
-    doc.save(`stock_movements_${new Date().toISOString().split('T')[0]}.pdf`);
-    toast.success('Stock movements saved as PDF');
+      const inCount = movements.filter(m => m.movement_type === 'in').length;
+      const outCount = movements.filter(m => m.movement_type === 'out').length;
+
+      const tableData = movements.map((m) => [
+        formatDate(m.movement_date),
+        m.item?.name || '',
+        m.item?.category?.name || '',
+        m.movement_type?.toUpperCase() || '',
+        `${m.quantity} ${m.item?.unit || ''}`,
+        m.reference_type || '',
+        m.reference_no || '',
+      ]);
+
+      const success = exportToPDF({
+        title: 'Stock Movements History',
+        subtitle: `Period: ${filters.startDate ? formatDate(filters.startDate) : 'All'} to ${filters.endDate ? formatDate(filters.endDate) : 'All'}`,
+        headerInfo: [
+          { label: 'Total Movements', value: movements.length },
+          { label: 'Stock In', value: inCount },
+          { label: 'Stock Out', value: outCount },
+        ],
+        summaryCards: [
+          { label: 'Total Movements', value: movements.length },
+          { label: 'Stock In', value: inCount },
+          { label: 'Stock Out', value: outCount },
+        ],
+        tableHeaders: ['Date', 'Item Name', 'Category', 'Type', 'Quantity', 'Ref Type', 'Ref No'],
+        tableData,
+        filename: `stock_movements_${new Date().toISOString().split('T')[0]}.pdf`,
+        orientation: 'l'
+      });
+
+      if (success) {
+        toast.success('Stock movements saved as PDF');
+      } else {
+        toast.error('Failed to generate PDF');
+      }
+    } catch (error) {
+      console.error('PDF error:', error);
+      toast.error('Failed to generate PDF');
+    }
   };
 
   const handlePrint = () => {
-    window.print();
-    toast.success('Print dialog opened');
+    try {
+      const success = printContent('stock-movements-print-view');
+      if (!success) {
+        toast.error('Failed to print');
+      }
+    } catch (error) {
+      console.error('Print error:', error);
+      toast.error('Failed to print');
+    }
   };
 
   return (
-    <div>
+    <div className="space-y-6">
       <Modal
         isOpen={isDocumentModalOpen}
         onClose={() => {
@@ -316,12 +373,9 @@ const StockMovements = () => {
         />
       </Modal>
 
+      {/* Filters and Actions */}
       <Card>
         <div className="space-y-4">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text mb-4">
-            Stock Movements History
-          </h3>
-
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -372,19 +426,101 @@ const StockMovements = () => {
           </div>
 
           <div className="flex items-center justify-end space-x-2">
-            <Button variant="secondary" onClick={exportToCSV}>
-              <Download className="h-4 w-4 mr-2" />
-              Export CSV
-            </Button>
-            <Button variant="secondary" onClick={saveToPDF}>
+            <Button variant="secondary" onClick={handleSavePDF}>
               <FileText className="h-4 w-4 mr-2" />
               Save PDF
+            </Button>
+            <Button variant="secondary" onClick={handleExportCSV}>
+              <Download className="h-4 w-4 mr-2" />
+              Export CSV
             </Button>
             <Button variant="secondary" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-2" />
               Print
             </Button>
           </div>
+        </div>
+      </Card>
+
+      {/* Colorful Metric Blocks */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        {/* Total Movements */}
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-blue-100 text-sm font-medium mb-1">Total Movements</p>
+              <p className="text-3xl font-bold">{stats.totalMovements}</p>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg">
+              <Package className="h-8 w-8" />
+            </div>
+          </div>
+        </div>
+
+        {/* Total IN */}
+        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-green-100 text-sm font-medium">Total Stock IN</p>
+            <div className="bg-white/20 p-2 rounded-lg">
+              <TrendingUp className="h-6 w-6" />
+            </div>
+          </div>
+          {Object.keys(stats.totalIn).length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(stats.totalIn).map(([unit, qty]) => (
+                <div key={unit} className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg">
+                  <span className="text-sm font-bold">{qty.toFixed(2)}</span>
+                  <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded uppercase font-medium">{unit}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-lg font-bold">0</p>
+          )}
+        </div>
+
+        {/* Total OUT */}
+        <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-start justify-between mb-3">
+            <p className="text-orange-100 text-sm font-medium">Total Stock OUT</p>
+            <div className="bg-white/20 p-2 rounded-lg">
+              <TrendingDown className="h-6 w-6" />
+            </div>
+          </div>
+          {Object.keys(stats.totalOut).length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(stats.totalOut).map(([unit, qty]) => (
+                <div key={unit} className="flex items-center gap-1 bg-white/10 px-2 py-1 rounded-lg">
+                  <span className="text-sm font-bold">{qty.toFixed(2)}</span>
+                  <span className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded uppercase font-medium">{unit}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-lg font-bold">0</p>
+          )}
+        </div>
+
+        {/* Hanging Stock */}
+        <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-xl shadow-lg p-6 text-white transform transition-all hover:scale-105">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-red-100 text-sm font-medium mb-1">Stock 15+ Days Old</p>
+              <p className="text-3xl font-bold">{stats.hangingStock}</p>
+            </div>
+            <div className="bg-white/20 p-3 rounded-lg">
+              <AlertTriangle className="h-8 w-8" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Stock Movements History Table */}
+      <Card>
+        <div className="space-y-4">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">
+            Stock Movements History
+          </h3>
 
           {loading ? (
             <div className="flex items-center justify-center py-12">

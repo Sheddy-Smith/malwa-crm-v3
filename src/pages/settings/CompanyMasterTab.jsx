@@ -1,18 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import useCompanyStore from '@/store/companyStore';
 import Button from '@/components/ui/Button';
 import { toast } from 'sonner';
-import { Building, Mail, Phone, Globe, MapPin, Banknote, Plus, Trash2, User } from 'lucide-react';
+import { Building, Mail, Phone, Globe, MapPin, Banknote, Plus, Trash2, User, Upload } from 'lucide-react';
 
 const CompanyMasterTab = () => {
     const { companyDetails, updateCompanyDetails, updateContactPerson, updateBankDetails, addService, removeService, addTermsCondition, removeTermsCondition } = useCompanyStore();
     const [formData, setFormData] = useState(companyDetails);
     const [newService, setNewService] = useState('');
     const [newTerm, setNewTerm] = useState('');
+    const [logoPreview, setLogoPreview] = useState(companyDetails.logo || null);
+
+    useEffect(() => {
+        setFormData(companyDetails);
+        setLogoPreview(companyDetails.logo || null);
+    }, [companyDetails]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData({ ...formData, [name]: value });
+    };
+
+    const handleLogoUpload = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            if (file.size > 500 * 1024) { // 500KB limit
+                toast.error('File size too large. Please upload an image under 500KB.');
+                return;
+            }
+
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setLogoPreview(reader.result);
+                setFormData(prev => ({ ...prev, logo: reader.result }));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleRemoveLogo = () => {
+        setLogoPreview(null);
+        setFormData(prev => ({ ...prev, logo: null }));
     };
 
     const handleContactChange = (role, field, value) => {
@@ -58,6 +86,51 @@ const CompanyMasterTab = () => {
                     <p className="text-sm text-gray-600 dark:text-gray-400">Manage your company information for documents</p>
                 </div>
                 <Button onClick={handleSave}>Save Changes</Button>
+            </div>
+
+            <div className="bg-white dark:bg-dark-card p-6 rounded-lg border dark:border-gray-700">
+                <h4 className="text-md font-bold dark:text-dark-text mb-4 flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-brand-red" />
+                    Company Logo
+                </h4>
+                <div className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700">
+                    <div className="mb-4">
+                        {logoPreview ? (
+                            <div className="relative">
+                                <img 
+                                    src={logoPreview} 
+                                    alt="Company Logo" 
+                                    className="h-32 object-contain bg-white p-2 rounded shadow-sm" 
+                                />
+                                <button 
+                                    onClick={handleRemoveLogo}
+                                    className="absolute -top-2 -right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 shadow-md"
+                                    title="Remove Logo"
+                                >
+                                    <Trash2 className="h-4 w-4" />
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="h-32 w-32 flex items-center justify-center bg-gray-200 dark:bg-gray-700 rounded-full text-gray-400">
+                                <Upload className="h-12 w-12" />
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex flex-col items-center">
+                        <label className="cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors">
+                            <span>Upload Logo</span>
+                            <input 
+                                type="file" 
+                                accept="image/*" 
+                                className="hidden" 
+                                onChange={handleLogoUpload}
+                            />
+                        </label>
+                        <p className="text-xs text-gray-500 mt-2">
+                            Recommended: PNG or JPG, max 500KB. This logo will appear on invoices and the sidebar.
+                        </p>
+                    </div>
+                </div>
             </div>
 
             <div className="bg-white dark:bg-dark-card p-6 rounded-lg border dark:border-gray-700">

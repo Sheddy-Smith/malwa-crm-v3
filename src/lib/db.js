@@ -1,5 +1,5 @@
 const DB_NAME = 'malwa_erp_db';
-const DB_VERSION = 10; // v10: Added rate_history and purchase_challan_items stores
+const DB_VERSION = 14; // v14: Fixed version conflict and enhanced file system integration
 
 let db = null;
 
@@ -18,6 +18,7 @@ const STORES = {
   customer_jobs: 'id',
   invoices: 'id',
   receipts: 'id',
+  cash_receipts: 'id',
   supplier_products: 'id',
   vendor_services: 'id',
   service_orders: 'id',
@@ -61,8 +62,6 @@ const STORES = {
   accounts: 'id',
   purchases: 'id',
   purchase_items: 'id',
-  purchase_challan_items: 'id',
-  rate_history: 'id',
   gst_accounts: 'id',
   ledger_views: 'id',
   // Customer Module Stores
@@ -78,20 +77,61 @@ const STORES = {
   taxes: 'id',
   hsn_codes: 'id',
   audit_logs: 'id',
-  sequences: 'key' // Key-value store for auto-numbering
+  rate_history: 'id',
+  sequences: 'key', // Key-value store for auto-numbering
+  daily_tasks: 'id' // Daily tasks and reports
 };
 
 export const initDB = () => {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    // First check if database exists and get its version
+    const checkRequest = indexedDB.open(DB_NAME);
+    
+    checkRequest.onsuccess = (event) => {
+      const existingDb = event.target.result;
+      const existingVersion = existingDb.version;
+      existingDb.close();
+      
+      let targetVersion = DB_VERSION;
+      
+      if (existingVersion > DB_VERSION) {
+        console.warn(`⚠️ Database version conflict: existing v${existingVersion} > required v${DB_VERSION}`);
+        targetVersion = existingVersion; // Use existing version to avoid conflict
+        console.log(`🔄 Using existing database version: ${targetVersion}`);
+      }
+      
+      // Now open with the correct version
+      const request = indexedDB.open(DB_NAME, targetVersion);
+      
+      request.onerror = (event) => {
+        const error = event.target.error;
+        if (error.name === 'VersionError') {
+          console.error('❌ Version conflict detected, clearing database...');
+          // Delete the database and try again
+          const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+          deleteRequest.onsuccess = () => {
+            console.log('🗑️ Database cleared, reinitializing...');
+            // Retry with original version after clearing
+            const retryRequest = indexedDB.open(DB_NAME, DB_VERSION);
+            setupDatabaseHandlers(retryRequest, resolve, reject);
+          };
+          deleteRequest.onerror = () => {
+            console.error('❌ Failed to clear database');
+            reject(error);
+          };
+        } else {
+          console.error('❌ Failed to initialize database:', error);
+          reject(error);
+        }
+      };
+      
+      request.onsuccess = () => {
+        db = request.result;
+        console.log(`✅ Database initialized successfully (version ${db.version})`);
+        resolve(db);
+      };
 
-    request.onerror = () => reject(request.error);
-    request.onsuccess = () => {
-      db = request.result;
-      resolve(db);
-    };
-
-    request.onupgradeneeded = (event) => {
+      request.onupgradeneeded = (event) => {
       const database = event.target.result;
       const upgradeTxn = event.target.transaction;
       const oldVersion = event.oldVersion;
@@ -121,6 +161,18 @@ export const initDB = () => {
           } else if (storeName === 'labour_ledger_entries') {
             if (!objectStore.indexNames.contains('labour_id')) {
               objectStore.createIndex('labour_id', 'labour_id', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('entry_date')) {
+              objectStore.createIndex('entry_date', 'entry_date', { unique: false });
+            }
+          }
+        }
+
+        // Add indexes for supplier_ledger_entries if upgrading from v9
+        if (oldVersion < 10) {
+          if (storeName === 'supplier_ledger_entries') {
+            if (!objectStore.indexNames.contains('supplier_id')) {
+              objectStore.createIndex('supplier_id', 'supplier_id', { unique: false });
             }
             if (!objectStore.indexNames.contains('entry_date')) {
               objectStore.createIndex('entry_date', 'entry_date', { unique: false });
@@ -165,6 +217,9 @@ export const initDB = () => {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('name', 'name', { unique: false });
             objectStore.createIndex('gstin', 'gstin', { unique: false });
+          } else if (storeName === 'supplier_ledger_entries') {
+            objectStore.createIndex('supplier_id', 'supplier_id', { unique: false });
+            objectStore.createIndex('entry_date', 'entry_date', { unique: false });
           } else if (storeName === 'inventory_items') {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('category_id', 'category_id', { unique: false });
@@ -229,6 +284,7 @@ export const initDB = () => {
             objectStore.createIndex('parentId', 'parentId', { unique: false });
           } else if (storeName === 'purchases') {
             objectStore.createIndex('supplierId', 'supplierId', { unique: false });
+            objectStore.createIndex('supplier_id', 'supplier_id', { unique: false });
             objectStore.createIndex('vendorId', 'vendorId', { unique: false });
             objectStore.createIndex('date', 'date', { unique: false });
             objectStore.createIndex('status', 'status', { unique: false });
@@ -297,6 +353,98 @@ export const initDB = () => {
           }
         }
       });
+      };
+    };
+    
+    checkRequest.onerror = () => {
+      // No existing database, proceed with normal initialization
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
+      
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        db = request.result;
+        console.log(`✅ Database initialized successfully (version ${db.version})`);
+        resolve(db);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const database = event.target.result;
+        const upgradeTxn = event.target.transaction;
+        const oldVersion = event.oldVersion;
+
+        Object.entries(STORES).forEach(([storeName, keyPath]) => {
+          let objectStore;
+          
+          if (!database.objectStoreNames.contains(storeName)) {
+            objectStore = database.createObjectStore(storeName, {
+              keyPath,
+              autoIncrement: false
+            });
+          } else {
+            objectStore = upgradeTxn.objectStore(storeName);
+          }
+          // Index creation code would go here (same as above)
+        });
+      };
+    };
+  });
+};
+
+// Check database status and version
+export const checkDatabaseStatus = () => {
+  return new Promise((resolve) => {
+    const request = indexedDB.open(DB_NAME);
+    
+    request.onsuccess = (event) => {
+      const database = event.target.result;
+      const status = {
+        exists: true,
+        name: database.name,
+        version: database.version,
+        expectedVersion: DB_VERSION,
+        stores: Array.from(database.objectStoreNames),
+        hasVersionConflict: database.version !== DB_VERSION
+      };
+      database.close();
+      resolve(status);
+    };
+    
+    request.onerror = () => {
+      resolve({
+        exists: false,
+        expectedVersion: DB_VERSION,
+        hasVersionConflict: false
+      });
+    };
+  });
+};
+
+// Clear database utility function for version conflicts
+export const clearDatabase = () => {
+  return new Promise((resolve, reject) => {
+    console.log('🗑️ Clearing database due to version conflict...');
+    
+    // Close existing connection
+    if (db) {
+      db.close();
+      db = null;
+    }
+    
+    const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+    
+    deleteRequest.onsuccess = () => {
+      console.log('✅ Database cleared successfully');
+      resolve(true);
+    };
+    
+    deleteRequest.onerror = (event) => {
+      console.error('❌ Failed to clear database:', event.target.error);
+      reject(event.target.error);
+    };
+    
+    deleteRequest.onblocked = () => {
+      console.warn('⚠️ Database deletion blocked. Please close all tabs and try again.');
+      reject(new Error('Database deletion blocked'));
     };
   });
 };
@@ -306,6 +454,74 @@ const getDB = async () => {
     await initDB();
   }
   return db;
+};
+
+// Verify that a specific store exists, attempt to upgrade if not
+export const ensureStore = async (storeName) => {
+  const database = await getDB();
+  
+  if (!database.objectStoreNames.contains(storeName)) {
+    console.warn(`Store "${storeName}" not found in database version ${database.version}. Attempting to upgrade...`);
+    
+    // Close current connection
+    if (db) {
+      db.close();
+      db = null;
+    }
+    
+    // Force database upgrade by opening with a higher version
+    return new Promise((resolve, reject) => {
+      const currentVersion = database.version;
+      const newVersion = Math.max(currentVersion + 1, DB_VERSION);
+      
+      console.log(`Upgrading database from version ${currentVersion} to ${newVersion}`);
+      
+      const request = indexedDB.open(DB_NAME, newVersion);
+      
+      request.onerror = () => {
+        console.error('Database upgrade failed:', request.error);
+        reject(request.error);
+      };
+      
+      request.onsuccess = () => {
+        db = request.result;
+        console.log('Database upgraded successfully to version', db.version);
+        resolve(db);
+      };
+      
+      request.onupgradeneeded = (event) => {
+        const upgradeDb = event.target.result;
+        const upgradeTxn = event.target.transaction;
+        
+        console.log('onupgradeneeded triggered, creating missing stores...');
+        
+        // Create any missing stores from STORES config
+        Object.entries(STORES).forEach(([name, keyPath]) => {
+          if (!upgradeDb.objectStoreNames.contains(name)) {
+            console.log(`Creating missing store: ${name}`);
+            const objectStore = upgradeDb.createObjectStore(name, {
+              keyPath,
+              autoIncrement: false
+            });
+            
+            // Add basic indexes for daily_tasks
+            if (name === 'daily_tasks') {
+              objectStore.createIndex('task_type', 'task_type', { unique: false });
+              objectStore.createIndex('date', 'date', { unique: false });
+              objectStore.createIndex('created_at', 'created_at', { unique: false });
+            }
+          }
+        });
+      };
+      
+      request.onblocked = () => {
+        console.warn('Database upgrade blocked. Please close all other tabs with this app.');
+        reject(new Error('Database upgrade blocked. Please close all other tabs and refresh.'));
+      };
+    });
+  }
+  
+  return database;
 };
 
 const generateUUID = () => {

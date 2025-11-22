@@ -458,7 +458,7 @@ const PurchaseForm = ({ suppliers, categories, editData, onSave, onClose }) => {
     invoice_no: editData?.invoice_no || '',
     invoice_date: editData?.invoice_date || new Date().toISOString().split('T')[0],
     supplier_id: editData?.supplier_id || '',
-    gst_type: editData?.gst_type || 'igst',
+    gst_type: editData?.gst_type || 'cgst_sgst',
     igst: editData?.igst || 18,
     cgst: editData?.cgst || 9,
     sgst: editData?.sgst || 9,

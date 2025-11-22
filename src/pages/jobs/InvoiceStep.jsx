@@ -1,15 +1,9 @@
-
-
-
-
-
-
 import { useState, useEffect } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import { Save, Printer } from "lucide-react";
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
@@ -18,6 +12,8 @@ import { dbOperations } from "@/lib/db";
 import { createLedgerEntry } from "@/utils/dataFlow";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
+import { broadcastDataChange } from "@/utils/dataSync";
+import useCompanyStore from "@/store/companyStore";
 
 // Cash Receipt Modal Component
 const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName, maxAmount }) => {
@@ -147,7 +143,251 @@ const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName, maxAmount }
   );
 };
 
-const InvoiceStep = () => {
+const InvoiceStep = ({ job, onUpdate }) => {
+  const [invoiceData, setInvoiceData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showCashReceipt, setShowCashReceipt] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const { multipliers } = useMultiplierStore();
+  const { companyDetails } = useCompanyStore();
+
+  useEffect(() => {
+    if (job) {
+      setInvoiceData(job);
+    }
+  }, [job]);
+
+  const handleSavePDF = () => {
+    const input = document.getElementById("invoice-body");
+    html2canvas(input, { scale: 2 }).then((canvas) => {
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
+      const filename = jobCtx.vehicleNo ? `${jobCtx.vehicleNo}_invoice.pdf` : "invoice.pdf";
+      pdf.save(filename);
+    });
+  };
+
+  // Print
+  const handlePrint = () => {
+    const printContent = document.getElementById("invoice-body");
+    const WinPrint = window.open("", "", "width=900,height=650");
+    WinPrint.document.write(`<html><head><title>Invoice</title></head><body>${printContent.innerHTML}</body></html>`);
+    WinPrint.document.close();
+    WinPrint.focus();
+    WinPrint.print();
+    WinPrint.close();
+  };
+
+  const handleSaveInvoice = async () => {
+    try {
+      if (!customer) {
+        toast.error('Please select or enter a customer');
+        return;
+      }
+
+      const allItems = [...jobSheetEstimate, ...extraWork].map(item => ({
+        category: item.category,
+        item: item.item,
+        condition: item.condition,
+        cost: parseFloat(item.cost) || 0,
+        total: calculateTotal(item),
+      }));
+
+      const date = new Date().toISOString().split('T')[0];
+      const subtotal = allItems.reduce((s, i) => s + (i.total || 0), 0);
+      
+      // Calculate GST based on type
+      const gstAmt = (subtotal * 18) / 100;
+      const cgst = gstType === "CGST+SGST" ? (subtotal * 9) / 100 : 0;
+      const sgst = gstType === "CGST+SGST" ? (subtotal * 9) / 100 : 0;
+      const igst = gstType === "IGST" ? (subtotal * 18) / 100 : 0;
+      
+      const totalAfterDisc = subtotal + gstAmt - (discount || 0);
+      const final = totalAfterDisc + parseFloat(roundOff || 0);
+
+      // Get customer details
+      let customerId = customer;
+      let customerName = customer;
+      
+      if (!isNewCustomer) {
+        const selectedCustomer = customers.find(c => c.id === customer);
+        if (selectedCustomer) {
+          customerName = selectedCustomer.name;
+        }
+      }
+
+      const vehicleNo = jobCtx.vehicleNo || '';
+
+      // Check for duplicate with same vehicle and date
+      const allRecords = await dbOperations.getAll('invoices');
+      const existingRecord = allRecords.find(
+        record => record.vehicle_no === vehicleNo && record.date === date
+      );
+
+      const invoiceData = {
+        date,
+        invoice_no: invoiceNo,
+        vehicle_no: vehicleNo || undefined,
+        party_name: jobCtx.partyName || undefined,
+        customer_id: !isNewCustomer ? customerId : undefined,
+        customer_name: customerName,
+        payment_type: paymentType,
+        payment_received: paymentAmount,
+        balance_due: final - paymentAmount,
+        items: allItems,
+        subtotal,
+        gst_type: gstType,
+        cgst: cgst,
+        sgst: sgst,
+        igst: igst,
+        tax: gstAmt,
+        discount: discount || 0,
+        round_off: parseFloat(roundOff || 0),
+        total: final,
+        status: completionStatus,
+        remark: completionRemark || undefined,
+        payment_status: paymentAmount >= final ? 'paid' : 'pending'
+      };
+
+      let invoiceId = null;
+
+      if (existingRecord) {
+        // Show confirmation for update
+        const confirmed = window.confirm(
+          `An invoice already exists for Vehicle: ${vehicleNo} on Date: ${date}.\n\nDo you want to UPDATE the existing record?`
+        );
+        
+        if (!confirmed) {
+          return;
+        }
+
+        // Update existing invoice
+        await dbOperations.update('invoices', existingRecord.id, invoiceData);
+        invoiceId = existingRecord.id;
+
+        // Update sell_challan if exists
+        const allChallans = await dbOperations.getAll('sell_challans');
+        const existingChallan = allChallans.find(c => c.invoice_id === existingRecord.id);
+        
+        if (existingChallan) {
+          await dbOperations.update('sell_challans', existingChallan.id, {
+            date,
+            vehicle_no: vehicleNo || undefined,
+            party_name: jobCtx.partyName || undefined,
+            customer_name: customerName,
+            items: allItems,
+            subtotal,
+            gst_type: gstType,
+            cgst: cgst,
+            sgst: sgst,
+            igst: igst,
+            tax: gstAmt,
+            discount: discount || 0,
+            total: final,
+            status: 'invoiced',
+            invoice_id: existingRecord.id,
+            invoice_no: invoiceNo,
+          });
+        }
+
+        toast.success('Invoice updated successfully');
+      } else {
+        // Save new invoice to invoices table
+        const invoice = await dbOperations.insert('invoices', invoiceData);
+        invoiceId = invoice.id;
+
+        // Also save to sell_challans table for consistency
+        await dbOperations.insert('sell_challans', {
+          date,
+          vehicle_no: vehicleNo || undefined,
+          party_name: jobCtx.partyName || undefined,
+          customer_name: customerName,
+          items: allItems,
+          subtotal,
+          gst_type: gstType,
+          cgst: cgst,
+          sgst: sgst,
+          igst: igst,
+          tax: gstAmt,
+          discount: discount || 0,
+          total: final,
+          status: 'invoiced',
+          invoice_id: invoice.id,
+          invoice_no: invoiceNo,
+        });
+        
+        // Save sell rate history for all items
+        for (const item of allItems) {
+          try {
+            await dbOperations.insert('rate_history', {
+              id: `rate_invoice_${invoice.id}_${item.id || Date.now()}_${Math.random()}`,
+              item_name: item.productName || item.item_name || item.name,
+              category_id: item.category || '',
+              rate: parseFloat(item.rate) || 0,
+              vendor_name: customerName || jobCtx.partyName || 'N/A',
+              source: 'sell_invoice',
+              reference_no: vehicleNo,
+              reference_id: invoice.id,
+              date: date,
+              created_at: new Date().toISOString(),
+            });
+          } catch (err) {
+            console.error('Error saving rate history:', err);
+          }
+        }
+
+        toast.success('Invoice saved successfully');
+      }
+
+      // Create ledger entries if customer exists (only for new invoices)
+      if (!existingRecord && !isNewCustomer && customerId) {
+        try {
+          // Create invoice ledger entry (debit - customer owes us)
+          const invoiceLedgerEntry = await dbOperations.insert('customer_ledger_entries', {
+            customer_id: customerId,
+            entry_date: date,
+            type: 'invoice',
+            description: `Invoice for Vehicle: ${jobCtx.vehicleNo || 'N/A'}`,
+            debit_amount: final,
+            credit_amount: 0,
+            reference_type: 'invoice',
+            reference_id: invoiceId,
+          });
+          
+          // Broadcast invoice ledger entry
+          broadcastDataChange('customer_ledger_entries', 'add', { ...invoiceLedgerEntry, customer_id: customerId });
+
+          // Create payment ledger entry if payment received (credit - reduces what they owe)
+          if (paymentAmount > 0) {
+            const paymentLedgerEntry = await dbOperations.insert('customer_ledger_entries', {
+              customer_id: customerId,
+              entry_date: date,
+              type: 'payment',
+              description: `Payment received for Invoice - Vehicle: ${jobCtx.vehicleNo || 'N/A'}`,
+              debit_amount: 0,
+              credit_amount: paymentAmount,
+              reference_type: 'invoice',
+              reference_id: invoiceId,
+            });
+            
+            // Broadcast payment ledger entry
+            broadcastDataChange('customer_ledger_entries', 'add', { ...paymentLedgerEntry, customer_id: customerId });
+          }
+        } catch (ledgerError) {
+          console.error('Failed to create ledger entry:', ledgerError);
+        }
+      }
+
+      await loadRecords();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save invoice');
+    }
+  };
+
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -257,6 +497,9 @@ const InvoiceStep = () => {
 
       await dbOperations.insert('customer_ledger_entries', ledgerEntry);
       
+      // Broadcast ledger entry for real-time updates
+      broadcastDataChange('customer_ledger_entries', 'add', { ...ledgerEntry, customer_id });
+      
       // Save to cash receipts list (for Accounts/Cash Receipt page)
       const cashReceipts = JSON.parse(localStorage.getItem('cashReceipts') || '[]');
       const newReceipt = {
@@ -345,6 +588,58 @@ const InvoiceStep = () => {
   const [paymentAmount, setPaymentAmount] = useState(0);
   const [discount, setDiscount] = useState(0);
   const [advancePayment, setAdvancePayment] = useState(0);
+  const [invoiceNo, setInvoiceNo] = useState(""); // <-- Invoice number state
+  const [completionStatus, setCompletionStatus] = useState('invoiced');
+  const [completionRemark, setCompletionRemark] = useState('');
+
+  // Generate Invoice Number
+  const generateInvoiceNumber = async () => {
+    try {
+      const allInvoices = await dbOperations.getAll('invoices');
+      
+      // Calculate Financial Year
+      const today = new Date();
+      const currentMonth = today.getMonth(); // 0-11
+      const currentYear = today.getFullYear();
+      
+      let fyStart = currentYear;
+      let fyEnd = currentYear + 1;
+      
+      if (currentMonth < 3) { // Jan, Feb, Mar
+        fyStart = currentYear - 1;
+        fyEnd = currentYear;
+      }
+      
+      const fyString = `${fyStart.toString().slice(-2)}-${fyEnd.toString().slice(-2)}`;
+      const prefix = `Mlw/${fyString}/`;
+      
+      // Find last invoice number for this FY
+      const fyInvoices = allInvoices.filter(inv => 
+        inv.invoice_no && inv.invoice_no.startsWith(prefix)
+      );
+      
+      let nextSeq = 1;
+      if (fyInvoices.length > 0) {
+        const maxSeq = fyInvoices.reduce((max, inv) => {
+          const parts = inv.invoice_no.split('/');
+          const seq = parseInt(parts[parts.length - 1]);
+          return !isNaN(seq) && seq > max ? seq : max;
+        }, 0);
+        nextSeq = maxSeq + 1;
+      }
+      
+      const newInvoiceNo = `${prefix}${nextSeq.toString().padStart(3, '0')}`;
+      setInvoiceNo(newInvoiceNo);
+    } catch (error) {
+      console.error("Error generating invoice number:", error);
+      // Fallback
+      setInvoiceNo(`Mlw/${new Date().getFullYear()}/001`);
+    }
+  };
+
+  useEffect(() => {
+    generateInvoiceNumber();
+  }, []);
 
   useEffect(() => {
     // Load from estimate context
@@ -458,240 +753,6 @@ const InvoiceStep = () => {
   const finalTotal = totalWithRoundOff; // Grand Total (before advance payment)
   const balanceDue = finalTotal - advancePayment; // Balance after advance payment
 
-  // PDF download
-  const handleSavePDF = () => {
-    const input = document.getElementById("invoice-body");
-    html2canvas(input, { scale: 2 }).then((canvas) => {
-      const imgData = canvas.toDataURL("image/png");
-      const pdf = new jsPDF("p", "mm", "a4");
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      const filename = jobCtx.vehicleNo ? `${jobCtx.vehicleNo}_invoice.pdf` : "invoice.pdf";
-      pdf.save(filename);
-    });
-  };
-
-  // Print
-  const handlePrint = () => {
-    const printContent = document.getElementById("invoice-body");
-    const WinPrint = window.open("", "", "width=900,height=650");
-    WinPrint.document.write(`<html><head><title>Invoice</title></head><body>${printContent.innerHTML}</body></html>`);
-    WinPrint.document.close();
-    WinPrint.focus();
-    WinPrint.print();
-    WinPrint.close();
-  };
-
-
-
-
-
-
-
-
-const handleSaveInvoice = async () => {
-  try {
-    if (!customer) {
-      toast.error('Please select or enter a customer');
-      return;
-    }
-
-    const allItems = [...jobSheetEstimate, ...extraWork].map(item => ({
-      category: item.category,
-      item: item.item,
-      condition: item.condition,
-      cost: parseFloat(item.cost) || 0,
-      total: calculateTotal(item),
-    }));
-
-    const date = new Date().toISOString().split('T')[0];
-    const subtotal = allItems.reduce((s, i) => s + (i.total || 0), 0);
-    
-    // Calculate GST based on type
-    const gstAmt = (subtotal * 18) / 100;
-    const cgst = gstType === "CGST+SGST" ? (subtotal * 9) / 100 : 0;
-    const sgst = gstType === "CGST+SGST" ? (subtotal * 9) / 100 : 0;
-    const igst = gstType === "IGST" ? (subtotal * 18) / 100 : 0;
-    
-    const totalAfterDisc = subtotal + gstAmt - (discount || 0);
-    const final = totalAfterDisc + parseFloat(roundOff || 0);
-
-    // Get customer details
-    let customerId = customer;
-    let customerName = customer;
-    
-    if (!isNewCustomer) {
-      const selectedCustomer = customers.find(c => c.id === customer);
-      if (selectedCustomer) {
-        customerName = selectedCustomer.name;
-      }
-    }
-
-    const vehicleNo = jobCtx.vehicleNo || '';
-
-    // Check for duplicate with same vehicle and date
-    const allRecords = await dbOperations.getAll('invoices');
-    const existingRecord = allRecords.find(
-      record => record.vehicle_no === vehicleNo && record.date === date
-    );
-
-    const invoiceData = {
-      date,
-      vehicle_no: vehicleNo || undefined,
-      party_name: jobCtx.partyName || undefined,
-      customer_id: !isNewCustomer ? customerId : undefined,
-      customer_name: customerName,
-      payment_type: paymentType,
-      payment_received: paymentAmount,
-      balance_due: final - paymentAmount,
-      items: allItems,
-      subtotal,
-      gst_type: gstType,
-      cgst: cgst,
-      sgst: sgst,
-      igst: igst,
-      tax: gstAmt,
-      discount: discount || 0,
-      round_off: parseFloat(roundOff || 0),
-      total: final,
-      status: paymentAmount >= final ? 'paid' : 'pending',
-    };
-
-    let invoiceId = null;
-
-    if (existingRecord) {
-      // Show confirmation for update
-      const confirmed = window.confirm(
-        `An invoice already exists for Vehicle: ${vehicleNo} on Date: ${date}.\n\nDo you want to UPDATE the existing record?`
-      );
-      
-      if (!confirmed) {
-        return;
-      }
-
-      // Update existing invoice
-      await dbOperations.update('invoices', existingRecord.id, invoiceData);
-      invoiceId = existingRecord.id;
-
-      // Update sell_challan if exists
-      const allChallans = await dbOperations.getAll('sell_challans');
-      const existingChallan = allChallans.find(c => c.invoice_id === existingRecord.id);
-      
-      if (existingChallan) {
-        await dbOperations.update('sell_challans', existingChallan.id, {
-          date,
-          vehicle_no: vehicleNo || undefined,
-          party_name: jobCtx.partyName || undefined,
-          customer_name: customerName,
-          items: allItems,
-          subtotal,
-          gst_type: gstType,
-          cgst: cgst,
-          sgst: sgst,
-          igst: igst,
-          tax: gstAmt,
-          discount: discount || 0,
-          total: final,
-          status: 'invoiced',
-          invoice_id: existingRecord.id,
-        });
-      }
-
-      toast.success('Invoice updated successfully');
-    } else {
-      // Save new invoice to invoices table
-      const invoice = await dbOperations.insert('invoices', invoiceData);
-      invoiceId = invoice.id;
-
-      // Also save to sell_challans table for consistency
-      await dbOperations.insert('sell_challans', {
-        date,
-        vehicle_no: vehicleNo || undefined,
-        party_name: jobCtx.partyName || undefined,
-        customer_name: customerName,
-        items: allItems,
-        subtotal,
-        gst_type: gstType,
-        cgst: cgst,
-        sgst: sgst,
-        igst: igst,
-        tax: gstAmt,
-        discount: discount || 0,
-        total: final,
-        status: 'invoiced',
-        invoice_id: invoice.id,
-      });
-      
-      // Save sell rate history for all items
-      for (const item of allItems) {
-        try {
-          await dbOperations.insert('rate_history', {
-            item_name: item.productName || item.item_name || item.name,
-            category_id: item.category || '',
-            rate: parseFloat(item.rate) || 0,
-            vendor_name: customerName || jobCtx.partyName || 'N/A',
-            source: 'sell_invoice',
-            reference_no: vehicleNo,
-            reference_id: invoice.id,
-            date: date,
-            created_at: new Date().toISOString(),
-          });
-        } catch (err) {
-          console.error('Error saving rate history:', err);
-        }
-      }
-
-      toast.success('Invoice saved successfully');
-    }
-
-    // Create ledger entries if customer exists (only for new invoices)
-    if (!existingRecord && !isNewCustomer && customerId) {
-      try {
-        // Create invoice ledger entry (debit)
-        await dbOperations.insert('customer_ledger_entries', {
-          customer_id: customerId,
-          entry_date: date,
-          type: 'invoice',
-          description: `Invoice for Vehicle: ${jobCtx.vehicleNo || 'N/A'}`,
-          debit: final,
-          credit: 0,
-          reference_type: 'invoice',
-          reference_id: invoiceId,
-        });
-
-        // Create payment ledger entry if payment received (credit)
-        if (paymentAmount > 0) {
-          await dbOperations.insert('customer_ledger_entries', {
-            customer_id: customerId,
-            entry_date: date,
-            type: 'payment',
-            description: `Payment received for Invoice - Vehicle: ${jobCtx.vehicleNo || 'N/A'}`,
-            debit: 0,
-            credit: paymentAmount,
-            reference_type: 'invoice',
-            reference_id: invoiceId,
-          });
-        }
-      } catch (ledgerError) {
-        console.error('Failed to create ledger entry:', ledgerError);
-      }
-    }
-
-    await loadRecords();
-  } catch (e) {
-    console.error(e);
-    toast.error('Failed to save invoice');
-  }
-};
-
-
-
-
-
-
-
-
   return (
     <div className="space-y-4 p-4">
       <h3 className="text-xl font-bold">Invoice</h3>
@@ -704,7 +765,18 @@ const handleSaveInvoice = async () => {
 
       <Card>
         {/* Customer & Payment Details */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 mb-4">
+          <div>
+            <label className="text-xs font-medium">Invoice Number</label>
+            <input
+              type="text"
+              value={invoiceNo}
+              onChange={(e) => setInvoiceNo(e.target.value)}
+              className="w-full border p-1.5 rounded mt-1 text-sm bg-gray-50"
+              placeholder="Mlw/24-25/001"
+            />
+          </div>
+
           <div>
             <label className="text-xs font-medium">Customer</label>
             {!isNewCustomer ? (
@@ -819,23 +891,23 @@ const handleSaveInvoice = async () => {
         <div id="invoice-body" className="bg-white -mx-4 md:-mx-6 lg:-mx-8">
           {/* Header Section */}
           <div className="mb-6 px-4 md:px-6 lg:px-8">
-            <div className="bg-red-600 text-white text-center py-3 -mx-4 md:-mx-6 lg:-mx-8 mb-4">
-              <h1 className="text-2xl font-bold tracking-wider">INVOICE</h1>
+            <div className="bg-red-600 text-white text-center py-1 -mx-4 md:-mx-6 lg:-mx-8 mb-4">
+              <h1 className="text-2xl font-bold tracking-wider">Tax Invoice</h1>
             </div>
             
             <div className="flex items-center justify-between mb-4">
               <div className="flex-1">
-                <h2 className="text-3xl font-bold text-red-600 mb-2">Malwa Trolley</h2>
-                <p className="text-gray-600 italic mb-1">09, Nemawar Road, Udyog nagar, Palda, Indore</p>
-                <a href="http://www.malwatrolley.com" className="text-blue-600 underline">www.malwatrolley.com</a>
-                <p className="text-gray-700 mt-1">Contact :- +91 822 4000 822</p>
-                <p className="text-gray-700">GSTIN : 23CLKPM9473J1ZI</p>
+                <h2 className="text-3xl font-bold text-red-600 mb-2">{companyDetails.name || "Malwa Trolley"}</h2>
+                <p className="text-gray-600 italic mb-1">{`${companyDetails.address || ''}, ${companyDetails.city || ''}`.replace(/^, /, '').replace(/, $/, '') || "09, Nemawar Road, Udyog nagar, Palda, Indore"}</p>
+                <a href={`http://${companyDetails.website || "www.malwatrolley.com"}`} className="text-blue-600 underline">{companyDetails.website || "www.malwatrolley.com"}</a>
+                <p className="text-gray-700 mt-1">Contact :- {companyDetails.phone || "+91 822 4000 822"}</p>
+                <p className="text-gray-700">GSTIN : {companyDetails.gstin || "23CLKPM9473J1ZI"}</p>
               </div>
               
               <div className="flex-shrink-0 ml-4">
                 <img 
-                  src="/malwa_logo.png" 
-                  alt="Malwa Trolley Logo" 
+                  src={companyDetails.logo || "/malwa_logo.png"} 
+                  alt="Company Logo" 
                   className="h-32 w-32 object-contain"
                   onError={(e) => {
                     e.target.style.display = 'none';
@@ -860,6 +932,7 @@ const handleSaveInvoice = async () => {
               <div><strong>Invoice Date:</strong> {new Date().toLocaleDateString('en-GB')}</div>
               <div><strong>Vehicle No:</strong> {jobCtx.vehicleNo || 'N/A'}</div>
               <div><strong>Payment Type:</strong> {paymentType}</div>
+              <div><strong>Invoice No:</strong> {invoiceNo}</div> {/* <-- Invoice number display */}
             </div>
           </div>
           
@@ -912,7 +985,7 @@ const handleSaveInvoice = async () => {
               {/* Account Details */}
               <div className="mt-4 pt-4 border-t">
                 <div className="font-semibold mb-2">Account Details:</div>
-                <div><strong>MALWA TROLLEY</strong></div>
+                <div><strong>{companyDetails.name || "MALWA TROLLEY"}</strong></div>
                 <div>ACC. NO.: 917020005504917</div>
                 <div>IFSC: UTIB0002512</div>
                 <div>AXIS BANK PALDA INDORE</div>
@@ -957,6 +1030,38 @@ const handleSaveInvoice = async () => {
                 </div>
               </div>
               
+              {/* Completion Status Section */}
+              <div className="mt-6 pt-4 border-t">
+                <h5 className="text-sm font-semibold mb-3">Deal Completion Status</h5>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs mb-1 font-medium">Completion Status *</label>
+                    <select
+                      value={completionStatus}
+                      onChange={(e) => setCompletionStatus(e.target.value)}
+                      className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    >
+                      <option value="invoiced">Invoiced</option>
+                      <option value="pending">Pending</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="complete">Complete</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1 font-medium">Completion Remark</label>
+                    <input
+                      type="text"
+                      value={completionRemark}
+                      onChange={(e) => setCompletionRemark(e.target.value)}
+                      className="w-full p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      placeholder="Optional notes (e.g., 'delivered on time', 'issue with part')"
+                    />
+                  </div>
+                </div>
+              </div>
+
               {/* Authorized Signature */}
               <div className="mt-8 text-right">
                 <div className="inline-block border-t border-black pt-2 px-8">

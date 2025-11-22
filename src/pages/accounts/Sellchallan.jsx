@@ -5,7 +5,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Trash2, Eye, Edit, Printer, Download } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 
 const SellChallan = () => {
   const [challans, setChallans] = useState([]);

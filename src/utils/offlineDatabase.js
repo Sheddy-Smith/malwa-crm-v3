@@ -121,7 +121,7 @@ class OfflineDatabaseManager {
   constructor() {
     this.databases = new Map();
     this.isInitialized = false;
-    this.backupPath = 'C:/malwa_crm/Data_Base/';
+    this.backupPath = 'C:/malwa_crm/data-base/'; // Updated to match sync manager path
     this.autoBackupInterval = null;
   }
 
@@ -588,7 +588,7 @@ class OfflineDatabaseManager {
     });
 
     console.log('\n=====================================================');
-    console.log('💾 Backup Path: C:/malwa_crm/Data_Base/');
+    console.log('💾 Backup Path: C:/malwa_crm/data-base/');
     console.log('=====================================================\n');
   }
 

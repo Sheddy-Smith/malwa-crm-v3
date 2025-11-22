@@ -100,6 +100,7 @@ import Challan from "./accounts/Challan";
 import Sellchallan from "./accounts/Sellchallan";
 import GSTLedger from "./accounts/Gstledger";
 import CashReceipt from "./accounts/CashReceipt";
+import OtherExpenses from "./accounts/OtherExpenses";
 
 const tabs = [
   {
@@ -111,6 +112,11 @@ const tabs = [
     id: "voucher",
     label: "Voucher",
     component: Voucher,
+  },
+  {
+    id: "expenses",
+    label: "Other Expenses",
+    component: OtherExpenses,
   },
    {
     id: "invoice",

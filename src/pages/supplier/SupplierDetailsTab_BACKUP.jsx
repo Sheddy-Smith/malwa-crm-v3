@@ -198,8 +198,8 @@ const SupplierDetailsTab = () => {
           const SupplierVouchers = allVouchers.filter(v => v.payee_type === 'Supplier' && v.payee_id === Supplier.id);
           const totalPayments = SupplierVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
           
-          // Net Balance = (Debit - Credit) from ledger
-          balances[Supplier.id] = (totalDebit - totalCredit);
+          // Net Balance = (Credit - Debit) from ledger (what we owe them)
+          balances[Supplier.id] = (totalCredit - totalDebit);
         });
         
         setSupplierBalances(balances);

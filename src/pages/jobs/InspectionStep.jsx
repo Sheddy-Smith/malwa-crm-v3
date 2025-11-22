@@ -22,6 +22,7 @@ const InspectionStep = () => {
     inspectionDate: new Date().toISOString().split('T')[0],
     address: "",
     gstNumber: "",
+    wheeler: "",
     status: "in-progress",
   });
 
@@ -174,6 +175,7 @@ const InspectionStep = () => {
       date: details.inspectionDate,
       address: details.address,
       gst_number: details.gstNumber || '',
+      wheeler: details.wheeler || '',
       status: details.status,
       items: normalizedItems,
       user_id: user?.id,
@@ -305,7 +307,9 @@ const InspectionStep = () => {
         ownerName: "",
         contactNo: "",
         inspectionDate: new Date().toISOString().split('T')[0],
-        branch: "",
+        address: "",
+        gstNumber: "",
+        wheeler: "",
         status: "in-progress",
       });
       setItems([]);
@@ -321,6 +325,7 @@ const InspectionStep = () => {
       inspectionDate: new Date().toISOString().split('T')[0],
       address: "",
       gstNumber: "",
+      wheeler: "",
       status: "in-progress",
     });
     setItems([]);
@@ -356,6 +361,7 @@ const InspectionStep = () => {
         contactNo: details.contactNo || '',
         address: details.address || '',
         gstNumber: details.gstNumber || '',
+        wheeler: details.wheeler || '',
         date: details.inspectionDate
       };
       localStorage.setItem('jobsContext', JSON.stringify(ctx));
@@ -387,12 +393,13 @@ const InspectionStep = () => {
           contactNo: details.contactNo || '',
           address: details.address || '',
           gstNumber: details.gstNumber || '',
+          wheeler: details.wheeler || '',
           date: details.inspectionDate
         };
         localStorage.setItem('jobsContext', JSON.stringify(ctx));
       } catch {}
     };
-  }, [items, details.vehicleNo, details.ownerName, details.contactNo, details.address, details.gstNumber, details.inspectionDate]);
+  }, [items, details.vehicleNo, details.ownerName, details.contactNo, details.address, details.gstNumber, details.wheeler, details.inspectionDate]);
 
   return (
     <div className="space-y-4">
@@ -405,64 +412,70 @@ const InspectionStep = () => {
       </div>
 
       <Card>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+        <div className="grid grid-cols-4 gap-x-4 gap-y-2 text-sm items-end">
           <div>
-            <label className="font-medium text-xs">Vehicle No:</label>
+            <label className="font-medium text-sm">Vehicle No:</label>
             <input
               type="text"
               name="vehicleNo"
               value={details.vehicleNo}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium text-xs">Owner Name:</label>
+            <label className="font-medium text-sm">Wheeler:</label>
+            <select
+              name="wheeler"
+              value={details.wheeler || ''}
+              onChange={handleDetailChange}
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="">Select Wheeler</option>
+              <option value="4 wheel">4 Wheel</option>
+              <option value="6 wheel">6 Wheel</option>
+              <option value="10 wheel">10 Wheel</option>
+              <option value="12 wheel">12 Wheel</option>
+              <option value="14 wheel">14 Wheel</option>
+              <option value="16 wheel">16 Wheel</option>
+              <option value="18 wheel">18 Wheel</option>
+              <option value="22 wheel">22 Wheel</option>
+            </select>
+          </div>
+          <div>
+            <label className="font-medium text-sm">Owner Name:</label>
             <input
               type="text"
               name="ownerName"
               value={details.ownerName}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium text-xs">Contact Number:</label>
+            <label className="font-medium text-sm">Contact Number:</label>
             <input
               type="tel"
               name="contactNo"
               value={details.contactNo}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
               placeholder="10 digit mobile number"
               maxLength="10"
             />
-            {details.contactNo && details.contactNo.length > 0 && details.contactNo.length !== 10 && (
-              <p className="text-xs text-red-500 mt-1">Phone must be 10 digits</p>
-            )}
           </div>
-          <div>
-            <label className="font-medium text-xs">Inspection Date:</label>
-            <input
-              type="date"
-              name="inspectionDate"
-              value={details.inspectionDate}
-              onChange={handleDetailChange}
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="font-medium text-xs">Address:</label>
+          <div className="col-span-2">
+            <label className="font-medium text-sm">Address:</label>
             <input
               type="text"
               name="address"
               value={details.address}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium text-xs">GST Number (Optional):</label>
+            <label className="font-medium text-sm">GST Number (Optional):</label>
             <input
               type="text"
               name="gstNumber"
@@ -470,21 +483,26 @@ const InspectionStep = () => {
               onChange={handleDetailChange}
               placeholder="15 characters"
               maxLength="15"
-              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
-            {details.gstNumber && details.gstNumber.length > 0 && details.gstNumber.length !== 15 && (
-              <p className="text-xs text-red-500 mt-1">GST must be 15 characters</p>
-            )}
           </div>
-          {/* Status field removed as per requirement */}
+          <div>
+            <label className="font-medium text-sm">Inspection Date:</label>
+            <input
+              type="date"
+              name="inspectionDate"
+              value={details.inspectionDate}
+              onChange={handleDetailChange}
+              className="w-full mt-1 p-2 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+          </div>
         </div>
-        <div className="flex justify-end mt-4 gap-2">
-          <Button onClick={saveDetails}>
-            <Save className="h-4 w-4 mr-2" />
-            {currentRecordId ? 'Update Details' : 'Save Details'}
-          </Button>
-          <Button variant="secondary" onClick={handleNext}>Next</Button>
-        </div>
+        {details.contactNo && details.contactNo.length > 0 && details.contactNo.length !== 10 && (
+          <p className="text-xs text-red-500 mt-1">Phone must be 10 digits</p>
+        )}
+        {details.gstNumber && details.gstNumber.length > 0 && details.gstNumber.length !== 15 && (
+          <p className="text-xs text-red-500 mt-1">GST must be 15 characters</p>
+        )}
       </Card>
 
       <Card title="Inspection Items">
@@ -672,9 +690,13 @@ const InspectionStep = () => {
           {items.length === 0 && !newItem && <div className="text-center p-4 text-gray-500">No inspection items.</div>}
         </div>
 
-        <div className="mt-4">
+        <div className="mt-4 flex justify-between items-center">
           <Button variant="secondary" onClick={addRow} disabled={!!newItem}>
             <PlusCircle className="h-4 w-4 mr-2" /> Add Item
+          </Button>
+
+          <Button onClick={() => saveDetails()} className="bg-green-600 hover:bg-green-700 text-white">
+            <Save className="h-4 w-4 mr-2" /> Save Inspection
           </Button>
         </div>
       </Card>

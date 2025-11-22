@@ -422,7 +422,8 @@ const Voucher = () => {
               ...entry,
               entry_date: voucherData.voucher_date,
               particulars: voucherData.particulars,
-              credit_amount: parseFloat(voucherData.amount),
+              debit_amount: parseFloat(voucherData.amount),
+              credit_amount: 0,
             });
           }
         } else if (voucherData.payee_type === 'labour' && voucherData.payee_id) {
@@ -433,7 +434,8 @@ const Voucher = () => {
               ...entry,
               entry_date: voucherData.voucher_date,
               particulars: voucherData.particulars,
-              credit_amount: parseFloat(voucherData.amount),
+              debit_amount: parseFloat(voucherData.amount),
+              credit_amount: 0,
             });
           }
         } else if (voucherData.payee_type === 'supplier' && voucherData.payee_id) {
@@ -444,7 +446,8 @@ const Voucher = () => {
               ...entry,
               entry_date: voucherData.voucher_date,
               particulars: voucherData.particulars,
-              credit_amount: parseFloat(voucherData.amount),
+              debit_amount: parseFloat(voucherData.amount),
+              credit_amount: 0,
             });
           }
         }
@@ -459,13 +462,13 @@ const Voucher = () => {
             id: `vle_${Date.now()}`,
             vendor_id: voucherData.payee_id,
             entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
+            particulars: voucherData.particulars || `Payment - ${voucherNo}`,
             category: 'Payment',
             reference_no: voucherNo,
             reference_type: 'voucher',
             reference_id: voucherRecord.id,
-            debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
+            debit_amount: parseFloat(voucherData.amount),
+            credit_amount: 0,
             entry_type: 'payment',
             created_at: new Date().toISOString(),
           });
@@ -474,13 +477,13 @@ const Voucher = () => {
             id: `lle_${Date.now()}`,
             labour_id: voucherData.payee_id,
             entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
+            particulars: voucherData.particulars || `Payment - ${voucherNo}`,
             skill_type: 'Payment',
             reference_no: voucherNo,
             reference_type: 'voucher',
             reference_id: voucherRecord.id,
-            debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
+            debit_amount: parseFloat(voucherData.amount),
+            credit_amount: 0,
             entry_type: 'payment',
             created_at: new Date().toISOString(),
           });
@@ -489,13 +492,13 @@ const Voucher = () => {
             id: `sle_${Date.now()}`,
             supplier_id: voucherData.payee_id,
             entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
+            particulars: voucherData.particulars || `Payment - ${voucherNo}`,
             category: 'Payment',
             reference_no: voucherNo,
             reference_type: 'voucher',
             reference_id: voucherRecord.id,
-            debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
+            debit_amount: parseFloat(voucherData.amount),
+            credit_amount: 0,
             entry_type: 'payment',
             created_at: new Date().toISOString(),
           });

@@ -12,7 +12,7 @@ import ConfirmModal from "@/components/ui/ConfirmModal";
 import Modal from "@/components/ui/Modal";
 import { dbOperations } from "@/lib/db";
 import { toast } from "sonner";
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const JobSheetStep = () => {
@@ -163,6 +163,7 @@ const JobSheetStep = () => {
       const jobSheetData = {
         vehicle_no: vehicleNo,
         party_name: jobCtx.partyName || '',
+        wheeler: jobCtx.wheeler || '',
         date: date,
         inspection_items: estimateItems,
         extra_work: extraWork,
@@ -233,9 +234,10 @@ const JobSheetStep = () => {
                 entry_date: date,
                 particulars: combinedWork,
                 category: 'Multiple Works',
-                debit_amount: vendorAmount,
-                credit_amount: 0,
+                debit_amount: 0,
+                credit_amount: vendorAmount,
                 vehicle_no: vehicleNo,
+                wheeler: jobCtx.wheeler || '',
                 owner_name: jobCtx.partyName || '',
                 work: combinedWork,
                 reference_type: 'job_sheet',
@@ -245,7 +247,7 @@ const JobSheetStep = () => {
               
               // Update vendor balance
               const entries = await dbOperations.getByIndex('vendor_ledger_entries', 'vendor_id', group.vendor.id);
-              const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+              const balance = entries.reduce((sum, entry) => sum + (entry.credit_amount || 0) - (entry.debit_amount || 0), 0);
               await dbOperations.update('vendors', group.vendor.id, {
                 current_balance: (group.vendor.opening_balance || 0) + balance
               });
@@ -277,7 +279,7 @@ const JobSheetStep = () => {
               
               // Update labour balance
               const entries = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', group.labour.id);
-              const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+              const balance = entries.reduce((sum, entry) => sum + (entry.credit_amount || 0) - (entry.debit_amount || 0), 0);
               await dbOperations.update('labour', group.labour.id, {
                 current_balance: (group.labour.opening_balance || 0) + balance
               });
@@ -414,7 +416,7 @@ const JobSheetStep = () => {
   const balanceDue = finalTotal - advancePayment;
 
   // Prefill context from Inspection (vehicle/party)
-  const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "", date: "" });
+  const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "", wheeler: "", date: "" });
   useEffect(() => {
     try {
       const raw = localStorage.getItem('jobsContext');
@@ -461,7 +463,7 @@ const JobSheetStep = () => {
             <thead className="bg-gray-50 dark:bg-gray-800 text-left">
               <tr>
                 <th className="p-2 border dark:border-gray-700" style={{width: '30%'}}>Work</th>
-                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Category</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Wheeler</th>
                 <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Cost</th>
                 <th className="p-2 border dark:border-gray-700" style={{width: '8%'}}>Qty</th>
                 <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Total</th>
@@ -481,7 +483,7 @@ const JobSheetStep = () => {
                 estimateItems.map((item, index) => (
                   <tr key={index} className="border-b dark:border-gray-700">
                     <td className="p-2">{item.item}</td>
-                    <td className="p-2">{item.category}</td>
+                    <td className="p-2">{jobCtx.wheeler || '-'}</td>
                     <td className="p-2">{item.cost}</td>
                     <td className="p-2">{parseFloat(item.multiplier)}</td>
                     <td className="p-2">{calculateTotal(item).toFixed(2)}</td>
@@ -529,7 +531,7 @@ const JobSheetStep = () => {
             <thead className="bg-gray-100">
               <tr>
                 <th className="p-2 border" style={{width: '30%'}}>Work</th>
-                <th className="p-2 border" style={{width: '10%'}}>Category</th>
+                <th className="p-2 border" style={{width: '10%'}}>Wheeler</th>
                 <th className="p-2 border" style={{width: '10%'}}>Cost (₹)</th>
                 <th className="p-2 border" style={{width: '8%'}}>Qty</th>
                 <th className="p-2 border" style={{width: '10%'}}>Total (₹)</th>
@@ -560,18 +562,7 @@ const JobSheetStep = () => {
                       />
                     </td>
                     <td className="p-2">
-                      <select
-                        value={item.category || ''}
-                        onChange={(e) =>
-                          handleExtraWorkChange(index, "category", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      >
-                        <option value="">Select Category</option>
-                        {categories.map(cat => (
-                          <option key={cat.id} value={cat.name}>{cat.name}</option>
-                        ))}
-                      </select>
+                      <div className="p-1 text-center">{jobCtx.wheeler || '-'}</div>
                     </td>
                     <td className="p-2">
                       <input

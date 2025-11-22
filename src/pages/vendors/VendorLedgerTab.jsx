@@ -7,7 +7,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
 import { PlusCircle, Download, FileText, Printer, Edit, Trash2, Search, Receipt } from 'lucide-react';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { dbOperations } from '@/lib/db';
 import { subscribeToEntity, broadcastDataChange } from '@/utils/dataSync';
@@ -138,7 +138,7 @@ const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg border-2 border-red-200 dark:border-red-800">
           <label className="block text-sm font-semibold text-red-700 dark:text-red-300 mb-2">
-            💸 Debit Amount (Payable)
+            💸 Debit Amount
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-red-600 dark:text-red-400 font-bold text-lg">₹</span>
@@ -158,7 +158,7 @@ const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
 
         <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border-2 border-green-200 dark:border-green-800">
           <label className="block text-sm font-semibold text-green-700 dark:text-green-300 mb-2">
-            💰 Credit Amount (Paid)
+            💰 Credit Amount
           </label>
           <div className="relative">
             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-green-600 dark:text-green-400 font-bold text-lg">₹</span>
@@ -277,14 +277,40 @@ const VendorLedgerTab = () => {
     return () => unsubscribe();
   }, [selectedVendorId]);
 
-  // Add polling for real-time updates every 5 seconds
+  // Listen for vendor_ledger_entries changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('vendor_ledger_entries', ({ action, data }) => {
+      console.log('[VendorLedger] Ledger entry event received:', action, data);
+      if (data?.vendor_id === selectedVendorId) {
+        console.log('[VendorLedger] Ledger entry change detected for current vendor, refreshing...');
+        setTimeout(() => fetchLedgerEntries(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedVendorId]);
+
+  // Listen for vendor changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('vendors', ({ action, data }) => {
+      console.log('[VendorLedger] Vendor event received:', action, data);
+      if (data?.id === selectedVendorId && action === 'update') {
+        console.log('[VendorLedger] Current vendor updated, refreshing...');
+        setTimeout(() => fetchLedgerEntries(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedVendorId]);
+
+  // Add polling for real-time updates every 3 seconds
   useEffect(() => {
     if (!selectedVendorId) return;
 
     const pollInterval = setInterval(() => {
       fetchLedgerEntries(true); // Pass silent flag to prevent loading indicator
       fetchVendorVouchers();
-    }, 5000);
+    }, 3000); // Faster polling for real-time feel
 
     return () => clearInterval(pollInterval);
   }, [selectedVendorId, filters]);
@@ -304,7 +330,7 @@ const VendorLedgerTab = () => {
       
       data = Array.isArray(data) ? data : [];
 
-      let filteredData = data.sort((a, b) => String(a.entry_date).localeCompare(String(b.entry_date)));
+      let filteredData = data.sort((a, b) => String(b.entry_date).localeCompare(String(a.entry_date)));
       if (filters.startDate) {
         filteredData = filteredData.filter(e => String(e.entry_date) >= filters.startDate);
       }
@@ -342,10 +368,13 @@ const VendorLedgerTab = () => {
 
   const handleAddEntry = async (entryData) => {
     try {
-      await dbOperations.insert('vendor_ledger_entries', {
+      const newEntry = await dbOperations.insert('vendor_ledger_entries', {
         ...entryData,
         entry_type: 'manual',
       });
+
+      // Broadcast change for real-time updates
+      broadcastDataChange('vendor_ledger_entries', 'add', { ...newEntry, vendor_id: selectedVendorId });
 
       toast.success('Manual entry added successfully!');
       setIsModalOpen(false);
@@ -360,6 +389,9 @@ const VendorLedgerTab = () => {
     try {
       await dbOperations.update('vendor_ledger_entries', editingEntry.id, entryData);
 
+      // Broadcast change for real-time updates
+      broadcastDataChange('vendor_ledger_entries', 'update', { ...entryData, id: editingEntry.id, vendor_id: selectedVendorId });
+
       toast.success('Entry updated successfully!');
       setIsModalOpen(false);
       setEditingEntry(null);
@@ -373,6 +405,9 @@ const VendorLedgerTab = () => {
   const handleDeleteEntry = async () => {
     try {
       await dbOperations.delete('vendor_ledger_entries', entryToDelete.id);
+
+      // Broadcast change for real-time updates
+      broadcastDataChange('vendor_ledger_entries', 'delete', { id: entryToDelete.id, vendor_id: selectedVendorId });
 
       toast.success('Entry deleted successfully!');
       setIsDeleteModalOpen(false);
@@ -401,7 +436,7 @@ const VendorLedgerTab = () => {
       // Save voucher
       await dbOperations.insert('vouchers', voucherRecord);
 
-      // Create ledger entry for vendor
+      // Create ledger entry for vendor (DEBIT - payment made to vendor)
       if (voucherData.payee_type === 'vendor' && voucherData.payee_id) {
         const ledgerEntry = {
           id: `vle_${Date.now()}`,
@@ -412,8 +447,8 @@ const VendorLedgerTab = () => {
           work: voucherData.particulars || 'Payment Voucher',
           particulars: voucherData.particulars || 'Payment Voucher',
           category: 'Payment',
-          debit_amount: 0,
-          credit_amount: parseFloat(voucherData.amount),
+          debit_amount: parseFloat(voucherData.amount),
+          credit_amount: 0,
           reference_type: 'voucher',
           reference_id: voucherRecord.id,
           notes: voucherData.notes || '',
@@ -457,7 +492,7 @@ const VendorLedgerTab = () => {
     const openingBalance = parseFloat(selectedVendor?.opening_balance || 0);
     let balance = openingBalance;
     return ledgerEntries.map((entry) => {
-      balance += parseFloat(entry.debit_amount || 0) - parseFloat(entry.credit_amount || 0);
+      balance += parseFloat(entry.credit_amount || 0) - parseFloat(entry.debit_amount || 0);
       return { ...entry, running_balance: balance };
     });
   };
@@ -476,7 +511,7 @@ const VendorLedgerTab = () => {
   
   const previousMonthEntries = ledgerEntries.filter(e => e.entry_date < startOfMonth);
   const previousBalance = openingBalance + previousMonthEntries.reduce(
-    (bal, e) => bal + (parseFloat(e.debit_amount) || 0) - (parseFloat(e.credit_amount) || 0), 
+    (bal, e) => bal + (parseFloat(e.credit_amount) || 0) - (parseFloat(e.debit_amount) || 0), 
     0
   );
   
@@ -485,7 +520,7 @@ const VendorLedgerTab = () => {
   );
   const currentMonthDebit = currentMonthEntries.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
   const currentMonthCredit = currentMonthEntries.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
-  const currentMonthBalance = currentMonthDebit - currentMonthCredit;
+  const currentMonthBalance = currentMonthCredit - currentMonthDebit;
   
   const totalVoucherPayments = vendorVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
   const netBalance = previousBalance + currentMonthBalance;
@@ -609,8 +644,6 @@ const VendorLedgerTab = () => {
       doc.setFontSize(12);
       doc.setTextColor(netBalance > 0 ? 153 : 22, netBalance > 0 ? 27 : 163, netBalance > 0 ? 27 : 74);
       doc.text(`Rs ${Math.abs(netBalance).toLocaleString('en-IN')}`, cardX + 2, cardY + 12);
-      doc.setFontSize(7);
-      doc.text(netBalance > 0 ? '(Payable)' : '(Paid)', cardX + 2, cardY + 17);
       
       // Table
       console.log('[PDF] Preparing table data...');
@@ -892,7 +925,6 @@ const VendorLedgerTab = () => {
                       : 'text-green-600 dark:text-green-400'
                   }`}>
                     ₹{Math.abs(netBalance).toLocaleString('en-IN')}
-                    {netBalance > 0 ? ' (Payable)' : ' (Paid)'}
                   </p>
                 </div>
               </div>
@@ -918,6 +950,7 @@ const VendorLedgerTab = () => {
                     <tr>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 w-24">Date</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 w-32">Vehicle No</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 w-20">Wheeler</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 w-32">Owner Name</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Work</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right w-20">Debit</th>
@@ -937,6 +970,9 @@ const VendorLedgerTab = () => {
                           </td>
                           <td className="p-3 text-gray-900 dark:text-dark-text font-medium">
                             {entry.vehicle_no || '-'}
+                          </td>
+                          <td className="p-3 text-gray-900 dark:text-dark-text font-medium">
+                            {entry.wheeler || '-'}
                           </td>
                           <td className="p-3 text-gray-900 dark:text-dark-text">
                             {entry.owner_name || '-'}

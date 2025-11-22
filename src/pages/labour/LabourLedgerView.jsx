@@ -88,7 +88,7 @@ const LabourLedgerView = () => {
           e.entry_date >= dateFilter.from &&
           e.entry_date <= dateFilter.to
         )
-        .sort((a, b) => new Date(a.entry_date) - new Date(b.entry_date));
+        .sort((a, b) => new Date(b.entry_date) - new Date(a.entry_date));
       
       setLedgerEntries(filtered);
     } catch (error) {
@@ -99,7 +99,7 @@ const LabourLedgerView = () => {
   const calculateRunningBalance = () => {
     let balance = 0;
     return ledgerEntries.map(entry => {
-      balance += (parseFloat(entry.debit_amount) || 0) - (parseFloat(entry.credit_amount) || 0);
+      balance += (parseFloat(entry.credit_amount) || 0) - (parseFloat(entry.debit_amount) || 0);
       return { ...entry, balance };
     });
   };
@@ -111,7 +111,7 @@ const LabourLedgerView = () => {
     credit: acc.credit + (parseFloat(entry.credit_amount) || 0),
   }), { debit: 0, credit: 0 });
 
-  const finalBalance = totals.debit - totals.credit;
+  const finalBalance = totals.credit - totals.debit;
 
   return (
     <div className="space-y-6">

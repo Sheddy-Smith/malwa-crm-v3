@@ -54,7 +54,7 @@ const useLedgerStore = create((set, get) => ({
       }
     });
 
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     let runningBalance = 0;
     entries.forEach(entry => {

@@ -12,21 +12,36 @@ import Supplier from '@/pages/Supplier';
 import Inventory from '@/pages/Inventory';
 import Accounts from '@/pages/Accounts';
 import Summary from '@/pages/Summary';
+import IncentiveSummary from '@/pages/summary/IncentiveSummary';
+import PenaltyCard from '@/pages/summary/PenaltyCard';
+import DailyTasks from '@/pages/DailyTasks';
 import Settings from '@/pages/Settings';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import PageAccessGuard from '@/components/PageAccessGuard';
 import useAuthStore from './store/authStore';
+import usePermissionStore from './store/permissionStore';
 import CashRecipt from "./pages/CashRecipt";
 import { localDB } from '@/utils/localDatabase';
 import { initDB, dbOperations } from '@/lib/db';
 import { syncManager } from '@/utils/jobSyncManager';
 import { authService } from '@/lib/auth';
 import useMultiplierStore from '@/store/multiplierStore';
+import dbSyncManager from '@/utils/databaseSyncManager';
 
 function App() {
   const { isAuthenticated, user } = useAuthStore();
+  const { loadPermissions, initialized: permissionsInitialized } = usePermissionStore();
   const [dbReady, setDbReady] = useState(false);
   const [dbInitialized, setDbInitialized] = useState(false);
   const [autoLoginComplete, setAutoLoginComplete] = useState(false);
+
+  // Load permissions when user is authenticated
+  useEffect(() => {
+    if (isAuthenticated && user?.id && dbReady && !permissionsInitialized) {
+      console.log('🔐 Loading user permissions...');
+      loadPermissions(user.id);
+    }
+  }, [isAuthenticated, user, dbReady, permissionsInitialized, loadPermissions]);
 
   // Initialize database on app startup (before authentication)
   useEffect(() => {
@@ -47,6 +62,15 @@ function App() {
         await initDB();
         console.log('✅ IndexedDB initialized successfully');
         
+        // Initialize database sync manager (Electron only)
+        if (window.electron && window.electron.fs) {
+          console.log('🔄 Initializing Database Sync Manager...');
+          await dbSyncManager.initialize();
+          console.log('✅ Database Sync Manager initialized');
+        } else {
+          console.log('ℹ️ Running in browser mode - file system sync disabled');
+        }
+        
         // Check if any users exist, if not create default super admin
         const users = await dbOperations.getAll('users');
         if (!users || users.length === 0) {
@@ -62,6 +86,11 @@ function App() {
             console.log('✅ Default Super Admin created!');
             console.log('📧 User ID: Shahidmultaniii');
             console.log('🔑 Password: S#d_8224');
+            
+            // Force save after creating default admin
+            if (window.electron && window.electron.fs) {
+              await dbSyncManager.forceSave();
+            }
           } else {
             console.error('❌ Failed to create default admin:', result.error);
           }
@@ -106,6 +135,11 @@ function App() {
       // Cleanup sync manager on unmount
       if (isAuthenticated) {
         syncManager.stopAutoSync();
+      }
+      
+      // Cleanup database sync manager
+      if (window.electron && window.electron.fs) {
+        dbSyncManager.destroy();
       }
     };
   }, [isAuthenticated, dbReady]);
@@ -195,18 +229,77 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="jobs" element={<Jobs />} />
-          <Route path="customer" element={<Customer />} />
-          <Route path="vendors" element={<Vendors />} />
-          <Route path="labour" element={<Labour />} />
-          <Route path="supplier" element={<Supplier />} />
-          <Route path="inventory" element={<Inventory />} />
-          <Route path="accounts" element={<Accounts />} />
-          <Route path="summary" element={<Summary />} />
-           <Route path="CashRecipt" element={<CashRecipt/>} />
+          <Route path="dashboard" element={
+            <PageAccessGuard pageKey="dashboard">
+              <Dashboard />
+            </PageAccessGuard>
+          } />
+          <Route path="jobs" element={
+            <PageAccessGuard pageKey="jobs">
+              <Jobs />
+            </PageAccessGuard>
+          } />
+          <Route path="customer" element={
+            <PageAccessGuard pageKey="customer">
+              <Customer />
+            </PageAccessGuard>
+          } />
+          <Route path="vendors" element={
+            <PageAccessGuard pageKey="vendors">
+              <Vendors />
+            </PageAccessGuard>
+          } />
+          <Route path="labour" element={
+            <PageAccessGuard pageKey="labour">
+              <Labour />
+            </PageAccessGuard>
+          } />
+          <Route path="supplier" element={
+            <PageAccessGuard pageKey="supplier">
+              <Supplier />
+            </PageAccessGuard>
+          } />
+          <Route path="inventory" element={
+            <PageAccessGuard pageKey="inventory">
+              <Inventory />
+            </PageAccessGuard>
+          } />
+          <Route path="accounts" element={
+            <PageAccessGuard pageKey="accounts">
+              <Accounts />
+            </PageAccessGuard>
+          } />
+          <Route path="summary" element={
+            <PageAccessGuard pageKey="summary">
+              <Summary />
+            </PageAccessGuard>
+          } />
+          <Route path="summary/incentive-summary" element={
+            <PageAccessGuard pageKey="summary">
+              <IncentiveSummary />
+            </PageAccessGuard>
+          } />
+          <Route path="summary/penalty-card" element={
+            <PageAccessGuard pageKey="summary">
+              <PenaltyCard />
+            </PageAccessGuard>
+          } />
+          <Route path="daily-tasks" element={
+            <PageAccessGuard pageKey="dailyTasks">
+              <DailyTasks />
+            </PageAccessGuard>
+          } />
+          <Route path="CashRecipt" element={
+            <PageAccessGuard pageKey="accounts" subPageKey="cashReceipt">
+              <CashRecipt />
+            </PageAccessGuard>
+          } />
 
-          <Route path="settings" element={<Settings />} />
+          <Route path="settings" element={
+            <PageAccessGuard pageKey="settings">
+              <Settings />
+            </PageAccessGuard>
+          } />
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Route>
          <Route path="/" element={<Navigate to={isAuthenticated ? "/dashboard" : "/login"} />} />

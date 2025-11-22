@@ -6,7 +6,10 @@ import MultiplierSettingsTab from "./settings/MultiplierSettingsTab";
 import RateListMemoryTab from "./settings/RateListMemoryTab";
 import SecuritySettingsTab from "./settings/SecuritySettingsTab";
 import BackupSettingsTab from "./settings/BackupSettingsTab";
+import AuditLogsTab from "./settings/AuditLogsTab";
 import AboutTab from "./settings/AboutTab";
+import CompanyMasterTab from "./settings/CompanyMasterTab";
+import DataManagementTab from "./settings/DataManagementTab";
 import AdminPasswordModal from "@/components/AdminPasswordModal";
 import useAuthStore from "@/store/authStore";
 import { useNavigate } from "react-router-dom";
@@ -14,11 +17,14 @@ import { dbOperations } from "@/lib/db";
 
 const allTabs = [
   { id: "general", label: "General", component: GeneralSettingsTab },
+  { id: "company", label: "Company Master", component: CompanyMasterTab },
+  { id: "data", label: "Data Management", component: DataManagementTab },
   { id: "multiplier", label: "Multiplier Settings", component: MultiplierSettingsTab },
   { id: "ratelist", label: "Rate List Memory", component: RateListMemoryTab },
-  { id: "users", label: "User Management", component: UserManagementTab, directorOnly: true },
+  { id: "users", label: "User Management", component: UserManagementTab },
   { id: "security", label: "Security", component: SecuritySettingsTab },
   { id: "backup", label: "Backup & Restore", component: BackupSettingsTab },
+  { id: "audit", label: "Audit Logs", component: AuditLogsTab, directorOnly: true },
   { id: "about", label: "About", component: AboutTab }
 ];
 

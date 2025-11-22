@@ -3,6 +3,7 @@ import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import useSettingsStore from '@/store/settingsStore';
 import offlineDB from '@/utils/offlineDatabase';
+import enhancedDbOperations from '@/utils/enhancedDbOperations';
 import { Database, Download, Upload, FolderOpen, Save, RefreshCw, HardDrive, CheckCircle, XCircle, Clock, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -14,12 +15,30 @@ const BackupSettingsTab = () => {
   const [stats, setStats] = useState(null);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [backupPath, setBackupPath] = useState('C:/malwa_crm/Data_Base/');
+  const [backupPath, setBackupPath] = useState('C:/malwa_crm/data-base/');
+  const [syncInfo, setSyncInfo] = useState(null);
 
   useEffect(() => {
     loadBackupInfo();
     loadStatistics();
+    loadSyncInfo();
   }, []);
+
+  const loadSyncInfo = async () => {
+    try {
+      if (enhancedDbOperations?.sync?.isAvailable?.()) {
+        const info = await enhancedDbOperations.sync.getInfo();
+        setSyncInfo(info);
+        
+        // Update backup path from sync info
+        if (info.customDbPath) {
+          setBackupPath(info.customDbPath);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading sync info:', error);
+    }
+  };
 
   const loadBackupInfo = async () => {
     // Get backup path
@@ -191,11 +210,59 @@ const BackupSettingsTab = () => {
 
   return (
     <div className="space-y-6">
-      {/* Backup Configuration */}
+      {/* File System Sync Status */}
+      {enhancedDbOperations?.sync?.isAvailable?.() && (
+        <Card className="p-6 border-green-200 bg-green-50 dark:bg-green-900/20">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <HardDrive className="text-green-600" size={24} />
+              <div>
+                <h3 className="text-xl font-bold text-green-800 dark:text-green-300">
+                  File System Sync Active
+                </h3>
+                <p className="text-sm text-green-600 dark:text-green-400">
+                  Data is automatically saved to: C:/malwa_crm/data-base/
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={async () => {
+                try {
+                  await enhancedDbOperations.sync.backup();
+                  toast.success('Manual backup completed!');
+                } catch (error) {
+                  toast.error('Backup failed: ' + error.message);
+                }
+              }}
+              className="bg-green-600 hover:bg-green-700 text-white"
+            >
+              <Download size={16} className="mr-2" />
+              Force Backup
+            </Button>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="text-green-500" size={16} />
+              <span className="text-green-700 dark:text-green-300">Auto-sync enabled</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="text-green-500" size={16} />
+              <span className="text-green-700 dark:text-green-300">Saves every 30 seconds</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Folder className="text-green-500" size={16} />
+              <span className="text-green-700 dark:text-green-300">Persistent storage</span>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Traditional Backup Configuration */}
       <Card className="p-6">
         <div className="flex items-center gap-3 mb-6">
           <Database className="text-blue-600" size={24} />
-          <h3 className="text-xl font-bold">Backup Configuration</h3>
+          <h3 className="text-xl font-bold">Manual Backup Configuration</h3>
         </div>
 
         <div className="space-y-4">

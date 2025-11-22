@@ -347,6 +347,48 @@ const LabourLedgerTab = () => {
     return () => unsubscribe();
   }, [selectedEmployeeId]);
 
+  // Listen for labour_ledger_entries changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('labour_ledger_entries', ({ action, data }) => {
+      console.log('[LabourLedger] Ledger entry event received:', action, data);
+      if (data?.labour_id === selectedEmployeeId) {
+        console.log('[LabourLedger] Ledger entry change detected for current labour, refreshing...');
+        setTimeout(() => {
+          fetchPreviousWeekBalance();
+          fetchWeekAttendance();
+        }, 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedEmployeeId]);
+
+  // Listen for labour_attendance changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('labour_attendance', ({ action, data }) => {
+      console.log('[LabourLedger] Attendance event received:', action, data);
+      if (data?.labour_id === selectedEmployeeId) {
+        console.log('[LabourLedger] Attendance change detected for current labour, refreshing...');
+        setTimeout(() => fetchWeekAttendance(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedEmployeeId]);
+
+  // Listen for labour changes
+  useEffect(() => {
+    const unsubscribe = subscribeToEntity('labour', ({ action, data }) => {
+      console.log('[LabourLedger] Labour event received:', action, data);
+      if (data?.id === selectedEmployeeId && action === 'update') {
+        console.log('[LabourLedger] Current labour updated, refreshing...');
+        setTimeout(() => fetchPreviousWeekBalance(), 100);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [selectedEmployeeId]);
+
   // Add polling for real-time updates every 2 seconds when employee is selected
   useEffect(() => {
     if (!selectedEmployeeId) return;
@@ -494,9 +536,10 @@ const LabourLedgerTab = () => {
         } else if (existingLedgerEntry && data.payment_amount === 0) {
           // Remove ledger entry if payment is 0
           await dbOperations.delete('labour_ledger_entries', existingLedgerEntry.id);
+          broadcastDataChange('labour_ledger_entries', 'delete', { id: existingLedgerEntry.id, labour_id: selectedEmployeeId });
         } else if (!existingLedgerEntry && data.payment_amount > 0) {
           // Create new ledger entry
-          await dbOperations.insert('labour_ledger_entries', {
+          const newLedgerEntry = await dbOperations.insert('labour_ledger_entries', {
             labour_id: selectedEmployeeId,
             entry_date: selectedDate,
             particulars: `Daily Earning - ${data.status === 'present' ? data.hours_worked + 'h' : data.status}`,
@@ -506,6 +549,7 @@ const LabourLedgerTab = () => {
             notes: data.notes || '',
             entry_type: 'daily_earning',
           });
+          broadcastDataChange('labour_ledger_entries', 'add', { ...newLedgerEntry, labour_id: selectedEmployeeId });
         }
       } else {
         // Create new attendance
@@ -513,7 +557,7 @@ const LabourLedgerTab = () => {
         
         // Create ledger entry for earning (debit)
         if (data.payment_amount > 0) {
-          await dbOperations.insert('labour_ledger_entries', {
+          const newLedgerEntry = await dbOperations.insert('labour_ledger_entries', {
             labour_id: selectedEmployeeId,
             entry_date: selectedDate,
             particulars: `Daily Earning - ${data.status === 'present' ? data.hours_worked + 'h' : data.status}`,
@@ -523,6 +567,7 @@ const LabourLedgerTab = () => {
             notes: data.notes || '',
             entry_type: 'daily_earning',
           });
+          broadcastDataChange('labour_ledger_entries', 'add', { ...newLedgerEntry, labour_id: selectedEmployeeId });
         }
       }
 

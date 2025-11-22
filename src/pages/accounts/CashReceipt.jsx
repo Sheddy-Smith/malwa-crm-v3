@@ -20,13 +20,16 @@ const CashReceiptForm = ({ receipt, onSave, onCancel }) => {
       bank_name: '',
       particulars: '',
       notes: '',
+      profile_id: '', // Added for incentive tracking
     }
   );
 
   const [customers, setCustomers] = useState([]);
+  const [profiles, setProfiles] = useState([]);
 
   useEffect(() => {
     loadCustomers();
+    loadProfiles();
   }, []);
 
   const loadCustomers = async () => {
@@ -35,6 +38,15 @@ const CashReceiptForm = ({ receipt, onSave, onCancel }) => {
       setCustomers(data || []);
     } catch (error) {
       console.error('Error loading customers:', error);
+    }
+  };
+
+  const loadProfiles = async () => {
+    try {
+      const data = await dbOperations.getAll('profiles');
+      setProfiles(data || []);
+    } catch (error) {
+      console.error('Error loading profiles:', error);
     }
   };
 
@@ -191,6 +203,25 @@ const CashReceiptForm = ({ receipt, onSave, onCancel }) => {
             </div>
           </>
         )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Related Profile (Staff)
+        </label>
+        <select
+          name="profile_id"
+          value={formData.profile_id}
+          onChange={handleChange}
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
+        >
+          <option value="">Select Profile...</option>
+          {profiles.map((profile) => (
+            <option key={profile.id} value={profile.id}>
+              {profile.name} ({profile.role})
+            </option>
+          ))}
+        </select>
       </div>
 
       <div>

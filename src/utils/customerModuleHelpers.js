@@ -241,7 +241,7 @@ export const getCustomerLedger = async (customerId, fromDate, toDate) => {
     });
 
     // Sort by date
-    ledgerEntries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    ledgerEntries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     // Calculate running balance
     let balance = customer.openingBalance || 0;

@@ -22,11 +22,8 @@ const hashPassword = async (password) => {
 export const authService = {
   async signUp({ email, password, name, role = 'Accountant' }) {
     try {
-      const existingUsers = await dbOperations.getByIndex('users', 'email', email);
-      if (existingUsers.length > 0) {
-        throw new Error('User already exists');
-      }
-
+      // Removed uniqueness check - allow duplicate usernames
+      
       const hashedPassword = await hashPassword(password);
       const userId = generateUUID();
 

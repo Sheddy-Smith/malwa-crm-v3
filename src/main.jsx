@@ -6,6 +6,10 @@ import { BrowserRouter, HashRouter } from 'react-router-dom'
 import { ThemeProvider } from './hooks/ThemeProvider.jsx'
 import ErrorOverlay from './components/ErrorOverlay'
 import './utils/resetAdmin'
+import { initializePermissionSystem } from './utils/permissionHelpers'
+
+// Initialize permission system on app start
+initializePermissionSystem().catch(console.error);
 
 // Global error handlers to ensure runtime errors show the overlay in production builds
 window.addEventListener('error', (e) => {

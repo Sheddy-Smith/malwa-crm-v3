@@ -524,7 +524,7 @@ export const getLabourLedger = async (labourId, fromDate, toDate) => {
       });
     });
 
-    entries.sort((a, b) => new Date(a.date) - new Date(b.date));
+    entries.sort((a, b) => new Date(b.date) - new Date(a.date));
 
     let balance = labour.opening_balance || 0;
     const entriesWithBalance = entries.map(entry => {

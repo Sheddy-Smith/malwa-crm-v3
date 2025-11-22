@@ -1,0 +1,138 @@
+[
+  {
+    "target_folder": "C:/malwa-crm/Data_base",
+    "files": [
+      "meta.json",
+      "Accounts.json",
+      "CashRecipt.json",
+      "Customer.json",
+      "DailyTasks.json",
+      "Dashboard.json",
+      "Inventory.json",
+      "Jobs.json",
+      "Labour.json",
+      "Login.json",
+      "Settings.json",
+      "Summary.json",
+      "Supplier.json",
+      "Vendors.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/accounts",
+    "files": [
+      "accounts.json",
+      "meta.json",
+      "CashReceipt.json",
+      "Challan.json",
+      "Gstledger.json",
+      "Invoice.json",
+      "OtherExpenses.json",
+      "Purchase.json",
+      "PurchaseChallan.json",
+      "PurchaseInvoice.json",
+      "Sellchallan.json",
+      "Voucher.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/customer",
+    "files": [
+      "customer.json",
+      "meta.json",
+      "ContactsTab.json",
+      "CustomerDetailsTab.json",
+      "CustomerLedgerTab.json",
+      "CustomerProfilePage.json",
+      "JobHistoryTab.json",
+      "LeadsTab.json",
+      "LedgerTab.json",
+      "ProfileDetailsTab.json",
+      "SalesHistoryTab.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/inventory",
+    "files": [
+      "inventory.json",
+      "meta.json",
+      "CategoryManager.json",
+      "StockMovements.json",
+      "StockTab.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/jobs",
+    "files": [
+      "jobs.json",
+      "meta.json",
+      "ChalanStep.json",
+      "EstimateStep.json",
+      "InspectionStep.json",
+      "InvoiceStep.json",
+      "JobSheetStep.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/labour",
+    "files": [
+      "labour.json",
+      "meta.json",
+      "LabourDetailsTab.json",
+      "LabourLedgerTab.json",
+      "LabourLedgerView.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/settings",
+    "files": [
+      "settings.json",
+      "meta.json",
+      "AboutTab.json",
+      "AuditLogsTab.json",
+      "BackupSettingsTab.json",
+      "CompanyMasterTab.json",
+      "GeneralSettingsTab.json",
+      "InventorySettingsTab.json",
+      "InvoiceSettingsTab.json",
+      "LedgerSettingsTab.json",
+      "MultiplierSettingsTab.json",
+      "MyProfileTab.json",
+      "RateListMemoryTab.json",
+      "SecuritySettingsTab.json",
+      "UserManagementTab.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/summary",
+    "files": [
+      "summary.json",
+      "meta.json",
+      "IncentiveSummary.json",
+      "PenaltyCard.json",
+      "SummaryDashboard.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/supplier",
+    "files": [
+      "supplier.json",
+      "meta.json",
+      "SUPER_ADMIN_PERMISSION_FULL.json",
+      "SupplierDetailsTab.json",
+      "SupplierDetailsTab_BACKUP.json",
+      "SupplierDetailsTab_NEW.json",
+      "SupplierLedger.json",
+      "SupplierLedgerTab.json"
+    ]
+  },
+  {
+    "target_folder": "C:/malwa-crm/Data_base/vendors",
+    "files": [
+      "vendors.json",
+      "meta.json",
+      "VendorDetailsTab.json",
+      "VendorLedgerTab.json"
+    ]
+  }
+]

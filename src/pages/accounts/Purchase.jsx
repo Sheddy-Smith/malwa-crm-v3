@@ -36,8 +36,6 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
     
     // Populate form if editing
     if (editData) {
-      console.log('Edit data received:', editData);
-      console.log('Edit data materials:', editData.materials);
       setFormData({
         id: editData.id,
         invoice_no: editData.invoice_no,
@@ -50,17 +48,36 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
       });
       
       if (editData.materials && editData.materials.length > 0) {
-        const mappedMaterials = editData.materials.map(m => ({
+        setMaterials(editData.materials.map(m => ({
           id: m.id || Date.now() + Math.random(),
           material_name: m.material_name,
           category_id: m.category_id,
           quantity: m.quantity,
           unit: m.unit,
           rate: m.rate,
-        }));
-        console.log('Setting materials:', mappedMaterials);
-        setMaterials(mappedMaterials);
+        })));
       }
+    } else {
+      // Reset form for new entry
+      setFormData({
+        invoice_no: '',
+        invoice_date: new Date().toISOString().split('T')[0],
+        supplier_id: '',
+        gst_type: 'igst',
+        igst: 18,
+        cgst: 9,
+        sgst: 9,
+      });
+      setMaterials([
+        {
+          id: Date.now(),
+          material_name: '',
+          category_id: '',
+          quantity: '',
+          unit: 'pcs',
+          rate: '',
+        }
+      ]);
     }
   }, [editData]);
 
@@ -253,12 +270,12 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                {materials && materials.length > 0 ? materials.map((material) => (
+                {materials.map((material) => (
                   <tr key={material.id} className="bg-white dark:bg-dark-card">
                     <td className="px-3 py-2">
                       <input
                         type="text"
-                        value={material.material_name || ''}
+                        value={material.material_name}
                         onChange={(e) => handleMaterialChange(material.id, 'material_name', e.target.value)}
                         placeholder="Enter material name"
                         className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
@@ -266,7 +283,7 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                     </td>
                     <td className="px-3 py-2">
                       <select
-                        value={material.category_id || ''}
+                        value={material.category_id}
                         onChange={(e) => handleMaterialChange(material.id, 'category_id', e.target.value)}
                         className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
                       >
@@ -281,7 +298,7 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={material.quantity || ''}
+                        value={material.quantity}
                         onChange={(e) => handleMaterialChange(material.id, 'quantity', e.target.value)}
                         placeholder="0"
                         step="0.01"
@@ -291,7 +308,7 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                     </td>
                     <td className="px-3 py-2">
                       <select
-                        value={material.unit || 'pcs'}
+                        value={material.unit}
                         onChange={(e) => handleMaterialChange(material.id, 'unit', e.target.value)}
                         className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
                       >
@@ -305,7 +322,7 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                     <td className="px-3 py-2">
                       <input
                         type="number"
-                        value={material.rate || ''}
+                        value={material.rate}
                         onChange={(e) => handleMaterialChange(material.id, 'rate', e.target.value)}
                         placeholder="0.00"
                         step="0.01"
@@ -329,11 +346,7 @@ const PurchaseInvoiceForm = ({ onClose, onSave, editData }) => {
                       </button>
                     </td>
                   </tr>
-                )) : (
-                  <tr>
-                    <td colSpan="7" className="px-3 py-2 text-center text-gray-500">No materials</td>
-                  </tr>
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -518,7 +531,26 @@ const Purchase = () => {
     try {
       setLoading(true);
       const data = await dbOperations.getAll('purchases');
-      setPurchases(data || []);
+      
+      // Load categories to get category names
+      const categories = await dbOperations.getAll('inventory_categories');
+      
+      // Enhance purchase data with category name
+      const enhancedData = data.map(purchase => {
+        if (purchase.materials && purchase.materials.length > 0) {
+          const firstMaterial = purchase.materials[0];
+          const category = categories.find(c => c.id === firstMaterial.category_id);
+          return {
+            ...purchase,
+            category_name: category?.name || 'Unknown'
+          };
+        }
+        return purchase;
+      });
+      
+      // Sort by date descending (recent first)
+      const sorted = enhancedData.sort((a, b) => new Date(b.invoice_date || b.created_at) - new Date(a.invoice_date || a.created_at));
+      setPurchases(sorted || []);
     } catch (error) {
       console.error('Error loading purchases:', error);
     } finally {
@@ -604,6 +636,15 @@ const Purchase = () => {
         // Delete old GST ledger entry
         await dbOperations.delete('gst_ledger', `${purchaseId}_gst`);
         
+        // Delete old rate history
+        const oldRates = await dbOperations.getAll('rate_history');
+        const ratesToDelete = oldRates.filter(r => 
+          r.reference_id === purchaseId && r.source === 'purchase'
+        );
+        for (const rate of ratesToDelete) {
+          await dbOperations.delete('rate_history', rate.id);
+        }
+        
         // Delete old supplier ledger entries
         const oldLedgerEntries = await dbOperations.getAll('supplier_ledger_entries');
         const ledgerEntriesToDelete = oldLedgerEntries.filter(e => 
@@ -634,7 +675,7 @@ const Purchase = () => {
 
       // 2. Save each material and update stock
       for (const material of purchaseData.materials) {
-        const materialId = `${purchaseId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const materialId = `${purchaseId}_${material.id}`;
         
         // Save purchase item
         await dbOperations.insert('purchase_items', {
@@ -663,17 +704,27 @@ const Purchase = () => {
           movement_date: purchaseData.invoice_date,
           created_at: new Date().toISOString(),
         });
+        
+        // Save rate history
+        await dbOperations.insert('rate_history', {
+          id: `rate_${materialId}_${Date.now()}`,
+          item_name: material.material_name,
+          category_id: material.category_id,
+          rate: parseFloat(material.rate),
+          vendor_name: purchaseData.supplier_name,
+          source: 'purchase',
+          reference_no: purchaseData.invoice_no,
+          reference_id: purchaseId,
+          date: purchaseData.invoice_date,
+          created_at: new Date().toISOString(),
+        });
       }
 
       // 3. Create supplier ledger entry (CREDIT - liability)
       const category = purchaseData.materials && purchaseData.materials.length > 0 ? purchaseData.materials[0].category_id : '';
       await dbOperations.insert('supplier_ledger_entries', {
-        id: `SL-${purchaseId}-${Date.now()}`,
         supplier_id: purchaseData.supplier_id,
         entry_date: purchaseData.invoice_date,
-        vehicle_no: '',
-        owner_name: '',
-        work: `Purchase Invoice - ${purchaseData.invoice_no}`,
         particulars: `Purchase Invoice - ${purchaseData.invoice_no}`,
         reference_no: purchaseData.invoice_no,
         reference_type: 'purchase',
@@ -686,23 +737,36 @@ const Purchase = () => {
       });
 
       // 4. Add to GST Ledger
-      const gstId = `${purchaseId}_gst`;
-      await dbOperations.insert('gst_ledger', {
-        id: gstId,
-        transaction_type: 'purchase',
-        transaction_date: purchaseData.invoice_date,
-        document_no: purchaseData.invoice_no,
-        party_name: purchaseData.supplier_name,
-        gst_type: purchaseData.gst_type,
-        igst: purchaseData.gst_type === 'igst' ? purchaseData.gst_amount : 0,
-        cgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
-        sgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
-        total_gst: purchaseData.gst_amount,
-        taxable_amount: purchaseData.subtotal,
-        entry_type: 'input',
-        created_at: new Date().toISOString(),
-      });
+      try {
+        const gstId = `${purchaseId}_gst`;
+        await dbOperations.insert('gst_ledger', {
+          id: gstId,
+          transaction_type: 'purchase',
+          transaction_date: purchaseData.invoice_date,
+          document_no: purchaseData.invoice_no,
+          party_name: purchaseData.supplier_name,
+          gst_type: purchaseData.gst_type,
+          igst: purchaseData.gst_type === 'igst' ? purchaseData.gst_amount : 0,
+          cgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
+          sgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
+          total_gst: purchaseData.gst_amount,
+          taxable_amount: purchaseData.subtotal,
+          entry_type: 'input',
+          created_at: new Date().toISOString(),
+        });
+        console.log('GST Ledger entry created:', gstId);
+      } catch (gstError) {
+        console.error('Error creating GST ledger entry:', gstError);
+        toast.warning('Purchase saved but GST ledger update failed');
+      }
 
+      // Success message and close form
+      if (isEditing) {
+        toast.success('Purchase invoice updated successfully!');
+      } else {
+        toast.success(`Purchase invoice saved successfully! ${purchaseData.materials.length} materials added to stock.`);
+      }
+      
       // Broadcast data change to supplier ledger
       broadcastDataChange('purchase', isEditing ? 'updated' : 'created', {
         purchase_id: purchaseId,
@@ -711,23 +775,12 @@ const Purchase = () => {
         amount: purchaseData.total_amount
       });
       
-      // Reload purchases
-      await loadPurchases();
-      
-      // Close form and reset state
       setShowForm(false);
       setEditingInvoice(null);
-      
-      // Success message after closing
-      if (isEditing) {
-        toast.success('Purchase invoice updated successfully!');
-      } else {
-        toast.success(`Purchase invoice saved successfully! ${purchaseData.materials.length} materials added to stock.`);
-      }
+      loadPurchases();
     } catch (error) {
       console.error('Error saving purchase:', error);
-      toast.error(`Failed to save purchase invoice: ${error.message || 'Unknown error'}`);
-      throw error; // Re-throw to prevent form from closing
+      toast.error('Failed to save purchase invoice');
     }
   };
 
@@ -897,7 +950,7 @@ const Purchase = () => {
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Invoice No</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Date</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Supplier</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Materials</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Category</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">GST</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Total</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Actions</th>
@@ -912,11 +965,7 @@ const Purchase = () => {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">{purchase.supplier_name}</td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
-                      {purchase.materials && purchase.materials.length > 0 
-                        ? (purchase.materials.length === 1 
-                            ? purchase.materials[0].material_name 
-                            : `${purchase.materials.length} items`)
-                        : 'No items'}
+                      {purchase.category_name || 'Multiple items'}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">₹{purchase.gst_amount?.toFixed(2)}</td>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-dark-text">
@@ -930,36 +979,6 @@ const Purchase = () => {
                           title="View"
                         >
                           <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={async () => {
-                            try {
-                              const allPurchaseItems = await dbOperations.getAll('purchase_items');
-                              const materials = allPurchaseItems.filter(item => item.purchase_id === purchase.id);
-                              console.log('Loaded materials for edit:', materials);
-                              const mappedMaterials = materials.map(m => ({
-                                id: m.id,
-                                material_name: m.material_name,
-                                category_id: m.category_id,
-                                quantity: m.quantity,
-                                unit: m.unit,
-                                rate: m.rate,
-                              }));
-                              console.log('Mapped materials:', mappedMaterials);
-                              setEditingInvoice({
-                                ...purchase,
-                                materials: mappedMaterials
-                              });
-                              setShowForm(true);
-                            } catch (error) {
-                              console.error('Error loading purchase for edit:', error);
-                              toast.error('Failed to load purchase for editing');
-                            }
-                          }}
-                          className="text-green-600 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
-                          title="Edit"
-                        >
-                          <Edit className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => handleDelete(purchase.id)}
@@ -983,6 +1002,7 @@ const Purchase = () => {
         setEditingInvoice(null);
       }} size="xl">
         <PurchaseInvoiceForm
+          key={editingInvoice?.id || 'new'}
           onClose={() => {
             setShowForm(false);
             setEditingInvoice(null);

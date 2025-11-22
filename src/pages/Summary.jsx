@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Card from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import PageHeader from '@/components/PageHeader';
+import MovementTracking from '@/components/MovementTracking';
 import { toast } from 'sonner';
 import {
   Truck,
@@ -15,11 +17,14 @@ import {
   Download,
   Printer,
   Calendar,
+  RefreshCw,
+  Award,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import { dbOperations } from '@/lib/db';
 
 const Summary = () => {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [dateRange, setDateRange] = useState({
     startDate: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0],
@@ -61,7 +66,7 @@ const Summary = () => {
     try {
       const { startDate, endDate } = dateRange;
 
-      const [vouchers, invoices, vendors, labours, stockMovements, inventoryItems, jobs] = await Promise.all([
+      const [vouchers, invoices, vendors, labours, stockMovements, inventoryItems, jobs, purchases] = await Promise.all([
         dbOperations.getAll('vouchers'),
         dbOperations.getAll('invoices'),
         dbOperations.getAll('vendors'),
@@ -77,6 +82,7 @@ const Summary = () => {
           const js = await dbOperations.getAll('jobs').catch(() => []);
           return cj?.length ? cj : js;
         })(),
+        dbOperations.getAll('purchases').catch(() => []),
       ]);
 
       const inRange = (d) => {
@@ -85,11 +91,21 @@ const Summary = () => {
         return (!startDate || ds >= startDate) && (!endDate || ds <= endDate);
       };
 
-      const expenses = (vouchers || []).filter(v => inRange(v.voucher_date || v.date || v.created_at));
-      const revenues = (invoices || []).filter(i => inRange(i.invoice_date || i.date || i.created_at));
+      // Calculate Expenses: Vouchers (excluding vendor payments) + Purchases
+      const expenseVouchers = (vouchers || []).filter(v => 
+        inRange(v.voucher_date || v.date || v.created_at) && 
+        v.payee_type !== 'vendor'
+      );
+      const purchaseInvoices = (purchases || []).filter(p => inRange(p.invoice_date || p.date || p.created_at));
 
-      const totalExpenses = expenses.reduce((sum, it) => sum + parseFloat(it.amount || it.payment_amount || 0), 0);
+      const totalVoucherExpenses = expenseVouchers.reduce((sum, it) => sum + parseFloat(it.amount || it.payment_amount || 0), 0);
+      const totalPurchaseExpenses = purchaseInvoices.reduce((sum, it) => sum + parseFloat(it.total_amount || it.amount || 0), 0);
+      const totalExpenses = totalVoucherExpenses + totalPurchaseExpenses;
+
+      // Calculate Revenue
+      const revenues = (invoices || []).filter(i => inRange(i.invoice_date || i.date || i.created_at));
       const totalRevenue = revenues.reduce((sum, it) => sum + parseFloat(it.total_amount || it.amount || 0), 0);
+      
       const totalVendors = vendors?.length || 0;
       const totalLabour = labours?.length || 0;
 
@@ -130,6 +146,7 @@ const Summary = () => {
 
       const invoices = await dbOperations.getAll('invoices');
       const vouchers = await dbOperations.getAll('vouchers');
+      const purchases = await dbOperations.getAll('purchases').catch(() => []);
 
       const currentDate = new Date(start.getFullYear(), start.getMonth(), 1);
       const endMonth = new Date(end.getFullYear(), end.getMonth(), 1);
@@ -151,12 +168,16 @@ const Summary = () => {
           .filter(i => inMonth(i.invoice_date || i.date || i.created_at))
           .reduce((sum, i) => sum + parseFloat(i.total_amount || i.amount || 0), 0);
 
-        const monthExpenses = (vouchers || [])
-          .filter(v => inMonth(v.voucher_date || v.date || v.created_at))
+        const monthVoucherExpenses = (vouchers || [])
+          .filter(v => inMonth(v.voucher_date || v.date || v.created_at) && v.payee_type !== 'vendor')
           .reduce((sum, v) => sum + parseFloat(v.amount || 0), 0);
 
+        const monthPurchaseExpenses = (purchases || [])
+          .filter(p => inMonth(p.invoice_date || p.date || p.created_at))
+          .reduce((sum, p) => sum + parseFloat(p.total_amount || p.amount || 0), 0);
+
         const revenue = monthRevenue;
-        const expenses = monthExpenses;
+        const expenses = monthVoucherExpenses + monthPurchaseExpenses;
         const profit = revenue - expenses;
 
         const monthName = currentDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
@@ -378,6 +399,14 @@ const Summary = () => {
               <Printer className="h-4 w-4 mr-2" />
               Print
             </Button>
+            <Button variant="secondary" onClick={fetchDashboardData} disabled={loading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => navigate('/summary/incentive-summary')}>
+              <Award className="h-4 w-4 mr-2" />
+              Incentive Card Generation
+            </Button>
           </div>
         </div>
       </Card>
@@ -525,6 +554,9 @@ const Summary = () => {
           </div>
         </Card>
       </div>
+
+      {/* Movement Tracking Section */}
+      <MovementTracking dateRange={dateRange} />
     </div>
   );
 };

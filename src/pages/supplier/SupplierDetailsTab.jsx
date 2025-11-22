@@ -9,18 +9,31 @@ import { Edit, Trash2, Download, Printer, Search } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 
 const SupplierForm = ({ supplier, onSave, onCancel }) => {
-  const [formData, setFormData] = useState(
-    supplier || {
-      name: '',
-      phone: '',
-      company: '',
-      address: '',
-      gstin: '',
-      supplier_type: '',
-      credit_limit: 0,
-      opening_balance: 0,
+  const [formData, setFormData] = useState({
+    name: '',
+    phone: '',
+    company: '',
+    address: '',
+    gstin: '',
+    supplier_type: '',
+    credit_limit: 0,
+    opening_balance: 0,
+  });
+
+  useEffect(() => {
+    if (supplier) {
+      setFormData({
+        name: supplier.name || '',
+        phone: supplier.phone || '',
+        company: supplier.company || '',
+        address: supplier.address || '',
+        gstin: supplier.gstin || '',
+        supplier_type: supplier.supplier_type || '',
+        credit_limit: supplier.credit_limit || 0,
+        opening_balance: supplier.opening_balance || 0,
+      });
     }
-  );
+  }, [supplier]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -189,17 +202,16 @@ const SupplierDetailsTab = () => {
         const balances = {};
         
         suppliers.forEach(supplier => {
+          // Get opening balance
+          const openingBalance = parseFloat(supplier.opening_balance || 0);
+          
           // Calculate from ledger entries
           const supplierLedger = allLedger.filter(e => e.supplier_id === supplier.id);
           const totalDebit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.debit_amount) || 0), 0);
           const totalCredit = supplierLedger.reduce((sum, e) => sum + (parseFloat(e.credit_amount) || 0), 0);
           
-          // Calculate payments from vouchers
-          const supplierVouchers = allVouchers.filter(v => v.payee_type === 'supplier' && v.payee_id === supplier.id);
-          const totalPayments = supplierVouchers.reduce((sum, v) => sum + (parseFloat(v.amount) || 0), 0);
-          
-          // Net Balance = (Debit - Credit) from ledger
-          balances[supplier.id] = (totalDebit - totalCredit);
+          // Net Balance = Opening Balance + (Credit - Debit) from ledger
+          balances[supplier.id] = openingBalance + (totalCredit - totalDebit);
         });
         
         setsupplierBalances(balances);
@@ -297,7 +309,7 @@ const SupplierDetailsTab = () => {
     <div>
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Edit Supplier">
         <SupplierForm
-          Supplier={editingSupplier}
+          supplier={editingSupplier}
           onSave={handleSave}
           onCancel={() => setIsModalOpen(false)}
         />

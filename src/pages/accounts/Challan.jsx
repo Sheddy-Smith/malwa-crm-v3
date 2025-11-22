@@ -6,10 +6,12 @@ import { toast } from 'sonner';
 import { PlusCircle, Trash2, Plus, Eye, Printer, Download, Edit } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 import { broadcastDataChange } from '@/utils/dataSync';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
+import useCompanyStore from '@/store/companyStore';
 
-const PurchaseChallanForm = ({ onClose, onSave }) => {
+// Form Component for Add/Edit
+const ChallanForm = ({ initialData, onClose, onSave }) => {
   const [suppliers, setSuppliers] = useState([]);
   const [categories, setCategories] = useState([]);
 
@@ -428,23 +430,33 @@ const PurchaseChallanForm = ({ onClose, onSave }) => {
 
 const Challan = () => {
   const [challans, setChallans] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
   const [viewingChallan, setViewingChallan] = useState(null);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [challanItems, setChallanItems] = useState([]);
-  const [searchFilters, setSearchFilters] = useState({
-    challan_no: '',
-    supplier_id: '',
-    date_from: '',
-    date_to: '',
-  });
+  const [showForm, setShowForm] = useState(false);
+  const { companyDetails } = useCompanyStore();
 
   useEffect(() => {
-    loadChallans();
+    fetchChallans();
     loadSuppliers();
   }, []);
+
+  const fetchChallans = async () => {
+    setLoading(true);
+    try {
+      const data = await dbOperations.getAll('purchase_challans');
+      // Sort by date descending (recent first)
+      const sorted = (data || []).sort((a, b) => new Date(b.challan_date || b.created_at) - new Date(a.challan_date || a.created_at));
+      setChallans(sorted);
+    } catch (error) {
+      console.error('Error loading challans:', error);
+      toast.error('Failed to load challans');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadSuppliers = async () => {
     try {
@@ -452,19 +464,6 @@ const Challan = () => {
       setSuppliers(data || []);
     } catch (error) {
       console.error('Error loading suppliers:', error);
-    }
-  };
-
-  const loadChallans = async () => {
-    setLoading(true);
-    try {
-      const data = await dbOperations.getAll('purchase_challans');
-      setChallans(data || []);
-    } catch (error) {
-      console.error('Error loading challans:', error);
-      toast.error('Failed to load challans');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -555,7 +554,9 @@ const Challan = () => {
         
         // Save rate history
         try {
+          const rateId = `rate_challan_${challanId}_${material.id || Date.now()}_${Math.random()}`;
           await dbOperations.insert('rate_history', {
+            id: rateId,
             item_name: material.material_name,
             category_id: material.category_id,
             rate: parseFloat(material.rate),
@@ -615,15 +616,15 @@ const Challan = () => {
         toast.success(`Purchase Challan saved successfully with ${challanData.materials.length} material(s)`);
         
         // Broadcast data change to supplier ledger
-        broadcastDataChange('purchase', 'created', {
-          purchase_id: challanId,
+        broadcastDataChange('purchase_challan', 'created', {
+          challan_id: challanId,
           supplier_id: challanData.supplier_id,
           challan_no: challanData.challan_no,
           amount: challanData.total_amount
         });
         
         setShowForm(false);
-        loadChallans();
+        fetchChallans();
       } else {
         toast.error('Some parts failed to save. Details: ' + errorMsg);
       }
@@ -639,7 +640,7 @@ const Challan = () => {
     try {
       await dbOperations.delete('purchase_challans', id);
       toast.success('Challan deleted successfully');
-      loadChallans();
+      fetchChallans();
     } catch (error) {
       console.error('Error deleting challan:', error);
       toast.error('Failed to delete challan');
@@ -648,7 +649,6 @@ const Challan = () => {
 
   const handleView = async (challan) => {
     setViewingChallan(challan);
-    setIsViewModalOpen(true);
     // Load challan items
     try {
       const allItems = await dbOperations.getAll('purchase_challan_items');
@@ -705,23 +705,14 @@ const Challan = () => {
 
   const handleSearchChange = (e) => {
     const { name, value } = e.target;
-    setSearchFilters({ ...searchFilters, [name]: value });
+    setSearchTerm(value);
   };
 
   const filteredChallans = challans.filter((challan) => {
-    if (searchFilters.challan_no && !challan.challan_no.toLowerCase().includes(searchFilters.challan_no.toLowerCase())) {
-      return false;
-    }
-    if (searchFilters.supplier_id && challan.supplier_id !== searchFilters.supplier_id) {
-      return false;
-    }
-    if (searchFilters.date_from && challan.challan_date < searchFilters.date_from) {
-      return false;
-    }
-    if (searchFilters.date_to && challan.challan_date > searchFilters.date_to) {
-      return false;
-    }
-    return true;
+    return (
+      challan.challan_no.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      challan.supplier_name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
   });
 
   return (
@@ -747,7 +738,7 @@ const Challan = () => {
                 <input
                   type="text"
                   name="challan_no"
-                  value={searchFilters.challan_no}
+                  value={searchTerm}
                   onChange={handleSearchChange}
                   placeholder="Search by challan no..."
                   className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
@@ -756,7 +747,7 @@ const Challan = () => {
               <div>
                 <select
                   name="supplier_id"
-                  value={searchFilters.supplier_id}
+                  value={searchTerm}
                   onChange={handleSearchChange}
                   className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
                 >
@@ -772,7 +763,7 @@ const Challan = () => {
                 <input
                   type="date"
                   name="date_from"
-                  value={searchFilters.date_from}
+                  value={searchTerm}
                   onChange={handleSearchChange}
                   placeholder="Date From"
                   className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
@@ -782,7 +773,7 @@ const Challan = () => {
                 <input
                   type="date"
                   name="date_to"
-                  value={searchFilters.date_to}
+                  value={searchTerm}
                   onChange={handleSearchChange}
                   placeholder="Date To"
                   className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
@@ -892,7 +883,7 @@ const Challan = () => {
 
       {/* Add Form Modal */}
       <Modal isOpen={showForm} onClose={() => setShowForm(false)} size="xl">
-        <PurchaseChallanForm
+        <ChallanForm
           onClose={() => setShowForm(false)}
           onSave={handleSave}
         />
@@ -900,9 +891,8 @@ const Challan = () => {
 
       {/* View Challan Modal */}
       <Modal
-        isOpen={isViewModalOpen}
+        isOpen={!!viewingChallan}
         onClose={() => {
-          setIsViewModalOpen(false);
           setViewingChallan(null);
           setChallanItems([]);
         }}
@@ -932,7 +922,7 @@ const Challan = () => {
               {/* Header */}
               <div className="text-center mb-6 border-b-2 border-black pb-4">
                 <h1 className="text-3xl font-bold">PURCHASE CHALLAN</h1>
-                <p className="text-lg mt-2">Malwa Trolley</p>
+                <p className="text-lg mt-2">{companyDetails.name || "Malwa Trolley"}</p>
               </div>
 
               {/* Challan Details */}

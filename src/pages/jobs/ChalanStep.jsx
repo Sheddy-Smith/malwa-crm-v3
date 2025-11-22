@@ -3,7 +3,7 @@ import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
 import { Save, Printer, Trash2, Receipt } from "lucide-react";
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
@@ -12,6 +12,7 @@ import { dbOperations } from "@/lib/db";
 import { createStockMovement } from "@/utils/dataFlow";
 import { toast } from "sonner";
 import useMultiplierStore from "@/store/multiplierStore";
+import { broadcastDataChange } from "@/utils/dataSync";
 
 // Cash Receipt Modal Component
 const CashReceiptModal = ({ isOpen, onClose, onSubmit, customerName, maxAmount }) => {
@@ -215,16 +216,19 @@ const ChalanStep = () => {
       const amount = parseFloat(receiptData.amount);
       
       // Create customer ledger entry for payment
-      await dbOperations.insert('customer_ledger_entries', {
+      const ledgerEntry = await dbOperations.insert('customer_ledger_entries', {
         customer_id: customer.id,
         entry_date: receiptData.date,
         type: 'payment',
         description: `${receiptData.purpose} (${receiptData.paymentType})`,
-        debit: 0,
-        credit: amount,
+        debit_amount: 0,
+        credit_amount: amount,
         reference_type: 'cash_receipt',
         reference_id: Date.now(),
       });
+      
+      // Broadcast ledger entry for real-time updates
+      broadcastDataChange('customer_ledger_entries', 'add', { ...ledgerEntry, customer_id: customer.id });
 
       // Save to cash receipts list (for Accounts/Cash Receipt page)
       const cashReceipts = JSON.parse(localStorage.getItem('cashReceipts') || '[]');
@@ -261,6 +265,8 @@ const ChalanStep = () => {
   const [paymentStatus, setPaymentStatus] = useState('pending');
   const [manualPayment, setManualPayment] = useState(0);
   const [createInvoice, setCreateInvoice] = useState(false);
+  const [completionStatus, setCompletionStatus] = useState('issued');
+  const [completionRemark, setCompletionRemark] = useState('');
 
   useEffect(() => {
     const estimateData = JSON.parse(localStorage.getItem("jobSheetEstimate") || "[]");
@@ -403,24 +409,23 @@ const ChalanStep = () => {
         record => record.vehicle_no === vehicleNo && record.date === date
       );
 
-      const challanData = {
-        date: date,
-        vehicle_no: vehicleNo || undefined,
-        party_name: jobCtx.partyName || undefined,
-        items,
-        subtotal,
-        tax,
-        discount: discount,
-        advance_payment: advancePayment,
-        total,
-        payment_status: paymentStatus,
-        payment_received: manualPayment,
-        balance_due: finalTotal - manualPayment,
-        create_invoice: createInvoice,
-        status: 'issued',
-      };
-
-      let challanId = null;
+    const challanData = {
+      date: date,
+      vehicle_no: vehicleNo || undefined,
+      party_name: jobCtx.partyName || undefined,
+      items,
+      subtotal,
+      tax,
+      discount: discount,
+      advance_payment: advancePayment,
+      total,
+      payment_status: paymentStatus,
+      payment_received: manualPayment,
+      balance_due: finalTotal - manualPayment,
+      create_invoice: createInvoice,
+      status: completionStatus,
+      remark: completionRemark || undefined,
+    };      let challanId = null;
 
       if (existingRecord) {
         // Show confirmation for update
@@ -447,6 +452,7 @@ const ChalanStep = () => {
           // Save sell rate history
           try {
             await dbOperations.insert('rate_history', {
+              id: `rate_challan_${challan.id}_${item.id || Date.now()}_${Math.random()}`,
               item_name: it.productName,
               category_id: it.category || '',
               rate: parseFloat(it.rate) || 0,
@@ -476,7 +482,7 @@ const ChalanStep = () => {
 
           if (customer) {
             // Create ledger entry for payment received
-            await dbOperations.insert('customer_ledger_entries', {
+            const paymentLedgerEntry = await dbOperations.insert('customer_ledger_entries', {
               customer_id: customer.id,
               entry_date: date,
               type: 'payment',
@@ -486,19 +492,25 @@ const ChalanStep = () => {
               reference_type: 'challan',
               reference_id: challanId,
             });
+            
+            // Broadcast payment ledger entry
+            broadcastDataChange('customer_ledger_entries', 'add', { ...paymentLedgerEntry, customer_id: customer.id });
 
             // Create ledger entry for challan amount (if not full payment)
             if (finalTotal > manualPayment) {
-              await dbOperations.insert('customer_ledger_entries', {
+              const saleLedgerEntry = await dbOperations.insert('customer_ledger_entries', {
                 customer_id: customer.id,
                 entry_date: date,
                 type: 'sale',
                 description: `Challan - Vehicle: ${vehicleNo}`,
-                debit: finalTotal,
-                credit: 0,
+                debit_amount: finalTotal,
+                credit_amount: 0,
                 reference_type: 'challan',
                 reference_id: challanId,
               });
+              
+              // Broadcast sale ledger entry
+              broadcastDataChange('customer_ledger_entries', 'add', { ...saleLedgerEntry, customer_id: customer.id });
             }
 
             toast.success('Customer ledger updated');
@@ -683,6 +695,38 @@ const ChalanStep = () => {
               <div className="font-bold text-lg">Grand Total: ₹{finalTotal.toFixed(2)}</div>
             </div>
 
+            {/* Completion Status Section */}
+            <div className="mt-4 pt-3 border-t">
+              <h5 className="text-xs font-semibold mb-2">Deal Completion Status</h5>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs mb-1 font-medium">Completion Status *</label>
+                  <select
+                    value={completionStatus}
+                    onChange={(e) => setCompletionStatus(e.target.value)}
+                    className="w-full p-1.5 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                  >
+                    <option value="issued">Issued</option>
+                    <option value="pending">Pending</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="delivered">Delivered</option>
+                    <option value="complete">Complete</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs mb-1 font-medium">Completion Remark</label>
+                  <input
+                    type="text"
+                    value={completionRemark}
+                    onChange={(e) => setCompletionRemark(e.target.value)}
+                    className="w-full p-1.5 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    placeholder="Optional notes (e.g., 'delivered on time', 'issue with part')"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Payment Details Section */}
             <div className="mt-4 border-t pt-2">
               <h5 className="text-xs font-semibold mb-1.5">Payment Details</h5>
@@ -734,6 +778,7 @@ const ChalanStep = () => {
                   </label>
                 </div>
               </div>
+
               <div className="mt-2 text-right">
                 <div className="text-2xl">Total: ₹{finalTotal.toFixed(2)}</div>
                 <div className="text-2xl">Payment Received: ₹{manualPayment.toFixed(2)}</div>

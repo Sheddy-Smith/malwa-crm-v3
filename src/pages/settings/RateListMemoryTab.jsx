@@ -232,6 +232,7 @@ const RateListMemoryTab = () => {
   const handleAddManualRate = async (formData) => {
     try {
       await dbOperations.insert('rate_history', {
+        id: `rate_manual_${Date.now()}`,
         item_name: selectedItem.item_name,
         category_id: selectedItem.category_id,
         rate: parseFloat(formData.rate),

@@ -1,56 +1,102 @@
 import { useState, useEffect } from 'react';
 import { NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, ChevronDown, LogOut, Settings, Truck, Users, Building, HardHat, Package, Warehouse, Landmark, BarChart } from 'lucide-react';
+import { LayoutDashboard, ChevronDown, LogOut, Settings, Truck, Users, Building, HardHat, Package, Warehouse, Landmark, BarChart, ClipboardList } from 'lucide-react';
 import useAuthStore from '@/store/authStore';
+import usePermissionStore from '@/store/permissionStore';
 import useUiStore from '@/store/uiStore';
+import useCompanyStore from '@/store/companyStore';
+import { usePageAccess } from '@/hooks/usePageAccess';
 import { AnimatePresence, motion } from 'framer-motion';
 import ConfirmModal from './ui/ConfirmModal';
 
 const sidebarNavItems = [
-  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { title: "Jobs", href: "/jobs", icon: Truck, children: [
-      { title: "Vehicle Inspection", href: "/jobs?step=inspection" }, { title: "Estimate", href: "/jobs?step=estimate" },
-      { title: "Job Sheet", href: "/jobs?step=jobsheet" }, { title: "Chalan", href: "/jobs?step=chalan" }, { title: "Invoice", href: "/jobs?step=invoice" },
+  { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: 'DASHBOARD_VIEW', pageKey: 'dashboard' },
+  { title: "Jobs", href: "/jobs", icon: Truck, permission: 'JOBS_VIEW', pageKey: 'jobs', children: [
+      { title: "Vehicle Inspection", href: "/jobs?step=inspection", subPageKey: 'vehicleInspection' }, 
+      { title: "Estimate", href: "/jobs?step=estimate", subPageKey: 'estimate' },
+      { title: "Job Sheet", href: "/jobs?step=jobsheet", subPageKey: 'jobSheet' }, 
+      { title: "Chalan", href: "/jobs?step=chalan", subPageKey: 'chalan' }, 
+      { title: "Invoice", href: "/jobs?step=invoice", subPageKey: 'invoice' },
   ]},
-  { title: "Customer", href: "/customer", icon: Users, children: [
-      { title: "Leads", href: "/customer?tab=leads" }, { title: "Contacts", href: "/customer?tab=contacts" },
-      { title: "Customer Ledger", href: "/customer?tab=ledger" },
+  { title: "Customer", href: "/customer", icon: Users, permission: 'CUSTOMER_VIEW', pageKey: 'customer', children: [
+      { title: "Leads", href: "/customer?tab=leads", subPageKey: 'leads' }, 
+      { title: "Contacts", href: "/customer?tab=contacts", subPageKey: 'contacts' },
+      { title: "Customer Ledger", href: "/customer?tab=ledger", subPageKey: 'customerLedger' },
   ]},
-  { title: "Vendors", href: "/vendors", icon: Building, children: [
-      { title: "Vendor Details", href: "/vendors?tab=details" },
-      { title: "Vendor Ledger", href: "/vendors?tab=ledger" },
+  { title: "Vendors", href: "/vendors", icon: Building, permission: 'VENDOR_VIEW', pageKey: 'vendors', children: [
+      { title: "Vendor Details", href: "/vendors?tab=details", subPageKey: 'vendorDetails' },
+      { title: "Vendor Ledger", href: "/vendors?tab=ledger", subPageKey: 'vendorLedger' },
   ]},
-  { title: "Labour", href: "/labour", icon: HardHat, children: [
-      { title: "Labour Details", href: "/labour?tab=details" },
-      { title: "Labour Ledger", href: "/labour?tab=ledger" },
+  { title: "Labour", href: "/labour", icon: HardHat, permission: 'LABOUR_VIEW', pageKey: 'labour', children: [
+      { title: "Labour Details", href: "/labour?tab=details", subPageKey: 'labourDetails' },
+      { title: "Labour Ledger", href: "/labour?tab=ledger", subPageKey: 'labourLedger' },
   ]},
-  { title: "Supplier", href: "/supplier", icon: Package, children: [
-      { title: "Supplier Details", href: "/supplier?tab=details" }, { title: "Supplier Ledger", href: "/supplier?tab=ledger" },
+  { title: "Supplier", href: "/supplier", icon: Package, permission: 'SUPPLIER_VIEW', pageKey: 'supplier', children: [
+      { title: "Supplier Details", href: "/supplier?tab=details", subPageKey: 'supplierDetails' }, 
+      { title: "Supplier Ledger", href: "/supplier?tab=ledger", subPageKey: 'supplierLedger' },
   ]},
-  { title: "Inventory", href: "/inventory", icon: Warehouse, children: [
-      { title: "Stock", href: "/inventory?tab=stock" }, { title: "Add Category", href: "/inventory?tab=categories" },
+  { title: "Inventory", href: "/inventory", icon: Warehouse, permission: 'INVENTORY_VIEW', pageKey: 'inventory', children: [
+      { title: "Stock", href: "/inventory?tab=stock", subPageKey: 'stock' }, 
+      { title: "Add Category", href: "/inventory?tab=categories", subPageKey: 'addCategory' },
   ]},
-  { title: "Accounts", href: "/accounts", icon: Landmark, children: [
-      { title: "Purchase", href: "/accounts?tab=purchase" }, { title: "Voucher", href: "/accounts?tab=voucher" },
-      { title: "Invoice", href: "/accounts?tab=invoice" }, { title: "Challan", href: "/accounts?tab=challan" },
-      { title: "GST Ledger", href: "/accounts?tab=GST" },
+  { title: "Accounts", href: "/accounts", icon: Landmark, permission: 'ACCOUNTS_VIEW', pageKey: 'accounts', children: [
+      { title: "Purchase-Invoice", href: "/accounts?tab=purchase", subPageKey: 'purchaseInvoice' }, 
+      { title: "Voucher", href: "/accounts?tab=voucher", subPageKey: 'voucher' },
+      { title: "Other Expenses", href: "/accounts?tab=expenses", subPageKey: 'otherExpenses' },
+      { title: "Sell-Invoice", href: "/accounts?tab=sell-invoice", subPageKey: 'sellInvoice' },
+      { title: "Purchase-Challan", href: "/accounts?tab=purchase-challan", subPageKey: 'purchaseChallan' },
+      { title: "Sell-Challan", href: "/accounts?tab=challan", subPageKey: 'sellChallan' },
+      { title: "Cash Receipt", href: "/accounts?tab=cash-receipt", subPageKey: 'cashReceipt' },
+      { title: "GST Ledger", href: "/accounts?tab=GST", subPageKey: 'gstLedger' },
   ]},
-  { title: "Summary", href: "/summary", icon: BarChart },
+  { title: "Summary", href: "/summary", icon: BarChart, permission: 'SUMMARY_VIEW', pageKey: 'summary' },
+  { title: "Daily Tasks", href: "/daily-tasks", icon: ClipboardList, permission: 'DAILY_TASKS_VIEW', pageKey: 'dailyTasks' },
 ];
 
 const SidebarContent = ({ onLinkClick }) => {
   const { user, logout } = useAuthStore();
+  const { can } = usePermissionStore();
+  const { hasAccess, loading: pageAccessLoading } = usePageAccess();
+  const { companyDetails } = useCompanyStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [openSections, setOpenSections] = useState({});
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
+  // Filter menu items based on permissions AND page visibility
+  const allowedNavItems = sidebarNavItems.filter(item => {
+    // Check permission first
+    if (item.permission && !can(item.permission)) return false;
+    
+    // Check page visibility from user_page_visibility
+    if (item.pageKey && !pageAccessLoading) {
+      const hasPageAccess = hasAccess(item.pageKey);
+      if (!hasPageAccess) return false;
+    }
+    
+    return true;
+  }).map(item => {
+    // Filter children based on subpage visibility
+    if (item.children && item.pageKey && !pageAccessLoading) {
+      const visibleChildren = item.children.filter(child => {
+        if (child.subPageKey) {
+          return hasAccess(item.pageKey, child.subPageKey);
+        }
+        return true;
+      });
+      
+      return { ...item, children: visibleChildren };
+    }
+    
+    return item;
+  });
+
   useEffect(() => {
-    const activeParent = sidebarNavItems.find(item => location.pathname.startsWith(item.href));
+    const activeParent = allowedNavItems.find(item => location.pathname.startsWith(item.href));
     if (activeParent) {
       setOpenSections(prev => ({ ...prev, [activeParent.title]: true }));
     }
-  }, [location.pathname]);
+  }, [location.pathname, allowedNavItems]);
 
   const handleLogout = () => { logout(); navigate('/login'); };
   const toggleSection = (title) => setOpenSections(prev => ({ ...prev, [title]: !prev[title] }));
@@ -66,7 +112,7 @@ const SidebarContent = ({ onLinkClick }) => {
       <ConfirmModal isOpen={isLogoutModalOpen} onClose={() => setIsLogoutModalOpen(false)} onConfirm={handleLogout} title="Confirm Logout" message="Are you sure you want to log out?" />
       <div className="flex flex-col h-full bg-sidebar text-white">
         <div className="h-24 flex items-center justify-center p-4 border-b border-blue-800 shrink-0 bg-brand-blue cursor-pointer" onClick={() => navigate('/dashboard')}>
-          <img src="https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhUspgoCiiYzdVTGXzZ_eGuIJ4DFg467VMmQwkaQgCwek_y_BYYegfR67o1gk2bXxPaWd6VhJoR-7npqySIzyK8IV7EY67YDAgviRmXwOA5FzauC4kmjeqe4C-y9Du6u5aOsZiPvRBv0xnoKb6Pi5KGlDs3KxoeyMT5oQYY5ffMBD9s412M4KrDevShgOw/s320/logo.png" alt="Malwa CRM Logo" className="h-16 w-auto" />
+          <img src={companyDetails.logo || "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEhUspgoCiiYzdVTGXzZ_eGuIJ4DFg467VMmQwkaQgCwek_y_BYYegfR67o1gk2bXxPaWd6VhJoR-7npqySIzyK8IV7EY67YDAgviRmXwOA5FzauC4kmjeqe4C-y9Du6u5aOsZiPvRBv0xnoKb6Pi5KGlDs3KxoeyMT5oQYY5ffMBD9s412M4KrDevShgOw/s320/logo.png"} alt="Company Logo" className="h-16 w-auto" />
         </div>
         
         <div className="p-4 border-b border-blue-800 shrink-0">
@@ -82,7 +128,7 @@ const SidebarContent = ({ onLinkClick }) => {
         </div>
 
         <nav className="flex-1 px-2 py-4 space-y-1 overflow-y-auto">
-          {sidebarNavItems.map((item) => {
+          {allowedNavItems.map((item) => {
             const isActive = isLinkActive(item);
             return (
               <div key={item.title}>

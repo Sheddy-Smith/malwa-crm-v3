@@ -5,7 +5,7 @@ import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle, Edit, Trash2, Eye, Printer, Download } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 import useCompanyStore from '@/store/companyStore';
 import useMultiplierStore from '@/store/multiplierStore';
@@ -18,8 +18,9 @@ const Invoice = () => {
   const [viewingInvoice, setViewingInvoice] = useState(null);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [customerDetails, setCustomerDetails] = useState(null);
+  const [customersMap, setCustomersMap] = useState({});
   const [searchFilters, setSearchFilters] = useState({
-    vehicle_no: '',
+    invoice_no: '',
     party_name: '',
     date_from: '',
     date_to: '',
@@ -32,8 +33,20 @@ const Invoice = () => {
   const loadInvoices = async () => {
     setLoading(true);
     try {
-      const data = await dbOperations.getAll('invoices');
-      const sorted = (data || []).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
+      const [invoicesData, customersData] = await Promise.all([
+        dbOperations.getAll('invoices'),
+        dbOperations.getAll('customers')
+      ]);
+
+      const custMap = {};
+      if (customersData) {
+        customersData.forEach(c => {
+          custMap[c.id] = c;
+        });
+      }
+      setCustomersMap(custMap);
+
+      const sorted = (invoicesData || []).sort((a, b) => new Date(b.created_at || b.date) - new Date(a.created_at || a.date));
       setInvoices(sorted);
     } catch (error) {
       console.error('Error loading invoices:', error);
@@ -127,7 +140,7 @@ const Invoice = () => {
 
   const handleReset = () => {
     setSearchFilters({
-      vehicle_no: '',
+      invoice_no: '',
       party_name: '',
       date_from: '',
       date_to: '',
@@ -135,7 +148,7 @@ const Invoice = () => {
   };
 
   const filteredInvoices = invoices.filter((invoice) => {
-    if (searchFilters.vehicle_no && !invoice.vehicle_no?.toLowerCase().includes(searchFilters.vehicle_no.toLowerCase())) {
+    if (searchFilters.invoice_no && !(invoice.invoice_no || invoice.invoice_number || '').toLowerCase().includes(searchFilters.invoice_no.toLowerCase())) {
       return false;
     }
     if (searchFilters.party_name && !invoice.party_name?.toLowerCase().includes(searchFilters.party_name.toLowerCase())) {
@@ -165,10 +178,10 @@ const Invoice = () => {
             <div>
               <input
                 type="text"
-                name="vehicle_no"
-                value={searchFilters.vehicle_no}
+                name="invoice_no"
+                value={searchFilters.invoice_no}
                 onChange={handleSearchChange}
-                placeholder="Search by vehicle no"
+                placeholder="Search by invoice no"
                 className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
               />
             </div>
@@ -233,9 +246,9 @@ const Invoice = () => {
               <thead className="bg-gray-100 dark:bg-gray-800 text-left">
                 <tr>
                   <th className="p-3 border-b dark:border-gray-700">Status</th>
-                  <th className="p-3 border-b dark:border-gray-700">Vehicle No</th>
+                  <th className="p-3 border-b dark:border-gray-700">Invoice No</th>
                   <th className="p-3 border-b dark:border-gray-700">Party Name</th>
-                  <th className="p-3 border-b dark:border-gray-700">Contact</th>
+                  <th className="p-3 border-b dark:border-gray-700">GST Number</th>
                   <th className="p-3 border-b dark:border-gray-700">Date</th>
                   <th className="p-3 border-b dark:border-gray-700">Branch</th>
                   <th className="p-3 border-b dark:border-gray-700 text-right">Actions</th>
@@ -261,13 +274,13 @@ const Invoice = () => {
                       </div>
                     </td>
                     <td className="p-3 font-medium text-gray-900 dark:text-white">
-                      {invoice.vehicle_no || 'N/A'}
+                      {invoice.invoice_no || invoice.invoice_number || '-'}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
                       {invoice.party_name || invoice.customer_name || 'N/A'}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
-                      {invoice.contact || invoice.contact_no || '-'}
+                      {customersMap[invoice.customer_id]?.gstin || '-'}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
                       {invoice.date ? new Date(invoice.date).toLocaleDateString('en-GB') : '-'}
@@ -346,23 +359,23 @@ const Invoice = () => {
             <div id="invoice-print-view" className="bg-white text-black p-6">
               {/* Header Section */}
               <div className="mb-6">
-                <div className="bg-red-600 text-white text-center py-3 -mx-6 mb-4">
-                  <h1 className="text-2xl font-bold tracking-wider">INVOICE</h1>
+                <div className="bg-red-600 text-white text-center py-1 -mx-6 mb-4">
+                  <h1 className="text-2xl font-bold tracking-wider">Tax Invoice</h1>
                 </div>
                 
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex-1">
-                    <h2 className="text-3xl font-bold text-red-600 mb-2">Malwa Trolley</h2>
-                    <p className="text-gray-600 italic mb-1">09, Nemawar Road, Udyog nagar, Palda, Indore</p>
-                    <a href="http://www.malwatrolley.com" className="text-blue-600 underline">www.malwatrolley.com</a>
-                    <p className="text-gray-700 mt-1">Contact :- +91 822 4000 822</p>
-                    <p className="text-gray-700">GSTIN : 23CLKPM9473J1ZI</p>
+                    <h2 className="text-3xl font-bold text-red-600 mb-2">{companyDetails.name || "Malwa Trolley"}</h2>
+                    <p className="text-gray-600 italic mb-1">{`${companyDetails.address || ''}, ${companyDetails.city || ''}`.replace(/^, /, '').replace(/, $/, '') || "09, Nemawar Road, Udyog nagar, Palda, Indore"}</p>
+                    <a href={`http://${companyDetails.website || "www.malwatrolley.com"}`} className="text-blue-600 underline">{companyDetails.website || "www.malwatrolley.com"}</a>
+                    <p className="text-gray-700 mt-1">Contact :- {companyDetails.phone || "+91 822 4000 822"}</p>
+                    <p className="text-gray-700">GSTIN : {companyDetails.gstin || "23CLKPM9473J1ZI"}</p>
                   </div>
                   
                   <div className="flex-shrink-0 ml-4">
                     <img 
-                      src="/malwa_logo.png" 
-                      alt="Malwa Trolley Logo" 
+                      src={companyDetails.logo || "/malwa_logo.png"} 
+                      alt="Company Logo" 
                       className="h-32 w-32 object-contain"
                       onError={(e) => {
                         e.target.style.display = 'none';
@@ -439,9 +452,9 @@ const Invoice = () => {
                   <div className="italic mb-4">{numberToWords(Math.round(viewingInvoice.total || 0))}</div>
                   
                   {/* Account Details */}
-                  <div className="mt-4 pt-4 border-t border-black">
+                  <div className="mt-4 pt-4 border-t">
                     <div className="font-semibold mb-2">Account Details:</div>
-                    <div><strong>MALWA TROLLEY</strong></div>
+                    <div><strong>{companyDetails.name || "MALWA TROLLEY"}</strong></div>
                     <div>ACC. NO.: 917020005504917</div>
                     <div>IFSC: UTIB0002512</div>
                     <div>AXIS BANK PALDA INDORE</div>

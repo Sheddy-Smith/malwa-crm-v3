@@ -1,105 +1,185 @@
 import React, { useState, useEffect } from "react";
 import Card from "../components/ui/Card";
-import {  Trash2 } from "lucide-react";
+import Button from "../components/ui/Button";
+import Modal from "../components/ui/Modal";
+import { Trash2, PlusCircle } from "lucide-react";
 import SearchBar from "../components/common/SearchBar";
 import { toast } from 'sonner';
+import { dbOperations } from '@/lib/db';
+import { broadcastDataChange } from '@/utils/dataSync';
 
 const CashRecipt = () => {
   const [open, setOpen] = useState(false);
-  const [receipts, setReceipts] = useState(() => {
-    const saved = localStorage.getItem("cashReceipts");
-    return saved ? JSON.parse(saved) : [];
-  });
-
+  const [receipts, setReceipts] = useState([]);
   const [name, setName] = useState("");
-  const [purpose, setPurpose] = useState("");
-  const [paymentType, setPaymentType] = useState("Offline");
+  const [customerId, setCustomerId] = useState("");
+  const [purpose, setPurpose] = useState("Payment for Invoice");
+  const [paymentType, setPaymentType] = useState("Cash");
   const [amount, setAmount] = useState("");
-  const [status, setStatus] = useState("Not Deposited");
-  const [date, setDate] = useState("");
+  const [status, setStatus] = useState("Received");
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [filteredReceipts, setFilteredReceipts] = useState([]);
-  const [customerNames, setCustomerNames] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [showNameDropdown, setShowNameDropdown] = useState(false);
+
+  useEffect(() => {
+    loadReceipts();
+    loadCustomers();
+  }, []);
 
   useEffect(() => {
     setFilteredReceipts(receipts);
   }, [receipts]);
 
-  useEffect(() => {
-    const savedBills = JSON.parse(localStorage.getItem("customerBills") || "[]");
-    const uniqueNames = [...new Set(savedBills.map(bill => bill.customerName).filter(Boolean))];
-    setCustomerNames(uniqueNames);
-  }, [open]);
+  const loadReceipts = async () => {
+    try {
+      const data = await dbOperations.getAll('cash_receipts');
+      // Sort by date descending (recent first)
+      const sorted = (data || []).sort((a, b) => new Date(b.receipt_date || b.created_at) - new Date(a.receipt_date || a.created_at));
+      setReceipts(sorted);
+    } catch (error) {
+      console.error('Error loading receipts:', error);
+      setReceipts([]);
+    }
+  };
+
+  const loadCustomers = async () => {
+    try {
+      const data = await dbOperations.getAll('customers');
+      setCustomers(data || []);
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      setCustomers([]);
+    }
+  };
 
   // Total calculation
   const total = receipts.reduce((sum, r) => sum + Number(r.amount || 0), 0);
 
-  useEffect(() => {
-    localStorage.setItem("cashReceipts", JSON.stringify(receipts));
-  }, [receipts]);
-
   const resetForm = () => {
     setName("");
-    setPurpose("");
-    setPaymentType("Offline");
+    setCustomerId("");
+    setPurpose("Payment for Invoice");
+    setPaymentType("Cash");
     setAmount("");
-    setStatus("Not Deposited");
-    setDate("");
+    setStatus("Received");
+    setDate(new Date().toISOString().split('T')[0]);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const savedBills = JSON.parse(localStorage.getItem("customerBills") || "[]");
-    const customerExists = savedBills.some(bill => bill.customerName === name);
-
-    if (!customerExists) {
-      toast.error("Customer name not found in Customer Ledger. Please add customer first.");
+    if (!customerId) {
+      toast.error("Please select a customer from the dropdown");
       return;
     }
 
-    const newReceipt = {
-      id: Date.now(),
-      name,
-      purpose,
-      paymentType,
-      amount: Number(amount),
-      status,
-      date,
-    };
+    if (!amount || parseFloat(amount) <= 0) {
+      toast.error("Please enter a valid amount");
+      return;
+    }
 
-    setReceipts([...receipts, newReceipt]);
+    try {
+      const receiptId = `receipt_${Date.now()}`;
+      const receiptData = {
+        id: receiptId,
+        customer_id: customerId,
+        customer_name: name,
+        purpose,
+        payment_type: paymentType,
+        amount: parseFloat(amount),
+        status,
+        receipt_date: date,
+        created_at: new Date().toISOString(),
+      };
 
-    const updatedBills = savedBills.map(bill => {
-      if (bill.customerName === name) {
-        const currentAmount = Number(bill.amountReceived || bill.totalAmount || 0);
-        return {
-          ...bill,
-          amountReceived: currentAmount + Number(amount)
-        };
-      }
-      return bill;
-    });
-    localStorage.setItem("customerBills", JSON.stringify(updatedBills));
+      // Save cash receipt
+      await dbOperations.insert('cash_receipts', receiptData);
 
-    toast.success("Receipt added and customer ledger updated!");
-    resetForm();
-    setOpen(false);
+      // Create customer ledger entry (CREDIT - payment received reduces receivable)
+      const ledgerEntry = await dbOperations.insert('customer_ledger_entries', {
+        id: `cle_receipt_${Date.now()}`,
+        customer_id: customerId,
+        entry_date: date,
+        particulars: `Cash Receipt - ${purpose}`,
+        reference_no: receiptId,
+        reference_type: 'cash_receipt',
+        reference_id: receiptId,
+        debit_amount: 0,
+        credit_amount: parseFloat(amount),
+        entry_type: 'payment',
+        created_at: new Date().toISOString(),
+      });
+
+      toast.success("Receipt added and customer ledger updated!");
+      
+      // Broadcast data changes for real-time updates
+      broadcastDataChange('cash_receipt', 'created', {
+        receipt_id: receiptId,
+        customer_id: customerId,
+        amount: parseFloat(amount)
+      });
+      
+      broadcastDataChange('customer_ledger_entries', 'add', {
+        ...ledgerEntry,
+        customer_id: customerId
+      });
+
+      resetForm();
+      setOpen(false);
+      loadReceipts();
+    } catch (error) {
+      console.error('Error saving receipt:', error);
+      toast.error('Failed to save receipt');
+    }
   };
 
-  const handleDelete = (id) => {
-    const filtered = receipts.filter((r) => r.id !== id);
-    setReceipts(filtered);
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this receipt?')) return;
+
+    try {
+      const receipt = receipts.find(r => r.id === id);
+      
+      // Delete the receipt
+      await dbOperations.delete('cash_receipts', id);
+
+      // Delete associated ledger entry
+      if (receipt) {
+        const ledgerEntries = await dbOperations.getAll('customer_ledger_entries');
+        const entry = ledgerEntries.find(e => e.reference_id === id && e.reference_type === 'cash_receipt');
+        if (entry) {
+          await dbOperations.delete('customer_ledger_entries', entry.id);
+          // Broadcast ledger entry deletion
+          broadcastDataChange('customer_ledger_entries', 'delete', {
+            id: entry.id,
+            customer_id: receipt?.customer_id
+          });
+        }
+      }
+
+      toast.success('Receipt deleted successfully');
+      
+      // Broadcast receipt deletion
+      broadcastDataChange('cash_receipt', 'deleted', {
+        receipt_id: id,
+        customer_id: receipt?.customer_id
+      });
+
+      loadReceipts();
+    } catch (error) {
+      console.error('Error deleting receipt:', error);
+      toast.error('Failed to delete receipt');
+    }
   };
 
   const handleSearch = (searchTerm) => {
     const term = searchTerm.toLowerCase();
     const filtered = receipts.filter(
       (r) =>
-        r.name.toLowerCase().includes(term) ||
-        r.purpose.toLowerCase().includes(term) ||
-        r.paymentType.toLowerCase().includes(term) ||
-        r.status.toLowerCase().includes(term)
+        r.customer_name?.toLowerCase().includes(term) ||
+        r.purpose?.toLowerCase().includes(term) ||
+        r.payment_type?.toLowerCase().includes(term) ||
+        r.status?.toLowerCase().includes(term)
     );
     setFilteredReceipts(filtered);
   };
@@ -108,62 +188,66 @@ const CashRecipt = () => {
     setFilteredReceipts(receipts);
   };
 
+  const handleCustomerSelect = (customer) => {
+    setName(customer.name);
+    setCustomerId(customer.id);
+    setShowNameDropdown(false);
+  };
+
   return (
     <Card className="p-6">
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold">Cash Receipt</h2>
-        <button
-          onClick={() => setOpen(true)}
-          className="bg-blue-600 text-white px-5 py-2 rounded-lg hover:bg-blue-700 font-semibold"
-        >
-          + Add Receipt
-        </button>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-dark-text">Cash Receipt</h2>
+        <Button onClick={() => setOpen(true)}>
+          <PlusCircle className="h-4 w-4 mr-2" />
+          Add Receipt
+        </Button>
       </div>
 
       {/* Search Bar */}
       <SearchBar
         onSearch={handleSearch}
         onReset={handleReset}
-        searchFields={['name', 'purpose', 'payment type', 'status']}
+        searchFields={['customer name', 'purpose', 'payment type', 'status']}
       />
 
       {/* Table */}
-      <div className="overflow-x-auto border rounded-lg">
+      <div className="overflow-x-auto border rounded-lg dark:border-gray-700">
         <table className="min-w-full border-collapse">
-          <thead className="bg-gray-100">
+          <thead className="bg-gray-100 dark:bg-gray-700">
             <tr>
-              <th className="border p-2">Name</th>
-              <th className="border p-2">Vehicle No</th>
-              <th className="border p-2">Purpose</th>
-              <th className="border p-2">Payment Type</th>
-              <th className="border p-2">Amount (₹)</th>
-              <th className="border p-2">Status</th>
-              <th className="border p-2">Date</th>
-              <th className="border p-2">Delete</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Customer Name</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Purpose</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Payment Type</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Amount (₹)</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Status</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Date</th>
+              <th className="border p-2 dark:border-gray-600 dark:text-gray-300">Delete</th>
             </tr>
           </thead>
           <tbody>
             {filteredReceipts.map((r) => (
-              <tr key={r.id} className="text-center hover:bg-gray-50">
-                <td className="border p-2">{r.name}</td>
-                <td className="border p-2">{r.vehicleNo || 'N/A'}</td>
-                <td className="border p-2">{r.purpose}</td>
-                <td className="border p-2">{r.paymentType}</td>
-                <td className="border p-2">₹{r.amount}</td>
+              <tr key={r.id} className="text-center hover:bg-gray-50 dark:hover:bg-gray-800">
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">{r.customer_name}</td>
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">{r.purpose}</td>
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">{r.payment_type}</td>
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">₹{parseFloat(r.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td>
                 <td
-                  className={`border p-2 font-medium ${
-                    r.status === "Deposited" ? "text-green-600" : "text-red-600"
+                  className={`border p-2 font-medium dark:border-gray-600 ${
+                    r.status === "Received" ? "text-green-600" : "text-red-600"
                   }`}
                 >
                   {r.status}
                 </td>
-                <td className="border p-2">{r.date}</td>
-                <td className="border p-2">
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">
+                  {new Date(r.receipt_date).toLocaleDateString('en-GB')}
+                </td>
+                <td className="border p-2 dark:border-gray-600">
                   <button
                     onClick={() => handleDelete(r.id)}
                     className="text-red-600 font-semibold hover:underline"
                   >
-                    <Trash2/>
+                    <Trash2 className="h-4 w-4" />
                   </button>
                 </td>
               </tr>
@@ -171,18 +255,20 @@ const CashRecipt = () => {
 
             {filteredReceipts.length === 0 && (
               <tr>
-                <td colSpan="8" className="text-gray-500 p-4">
+                <td colSpan="7" className="text-gray-500 dark:text-gray-400 p-4">
                   No receipts available.
                 </td>
               </tr>
             )}
 
             {filteredReceipts.length > 0 && (
-              <tr className="bg-gray-200 font-semibold text-center">
-                <td colSpan="4" className="border p-2 text-right">
+              <tr className="bg-gray-200 dark:bg-gray-700 font-semibold text-center">
+                <td colSpan="3" className="border p-2 text-right dark:border-gray-600 dark:text-dark-text">
                   Total:
                 </td>
-                <td className="border p-2">₹{total}</td>
+                <td className="border p-2 dark:border-gray-600 dark:text-dark-text">
+                  ₹{total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                </td>
                 <td colSpan="3"></td>
               </tr>
             )}
@@ -191,107 +277,127 @@ const CashRecipt = () => {
       </div>
 
       {/* Modal */}
-      {open && (
-        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-96 shadow-lg">
-            <div className="flex justify-between mb-3">
-              <h3 className="text-lg font-bold">Add Cash Receipt</h3>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-red-500 font-bold"
-              >
-                X
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="Customer Name (from Ledger)"
-                  value={name}
-                  onChange={(e) => {
-                    setName(e.target.value);
-                    setShowNameDropdown(true);
-                  }}
-                  onFocus={() => setShowNameDropdown(true)}
-                  className="w-full border p-2 rounded"
-                  required
-                />
-                {showNameDropdown && customerNames.length > 0 && (
-                  <div className="absolute z-10 w-full bg-white border rounded-lg shadow-lg max-h-40 overflow-y-auto mt-1">
-                    {customerNames
-                      .filter(n => n.toLowerCase().includes(name.toLowerCase()))
-                      .map((customerName, idx) => (
-                        <div
-                          key={idx}
-                          className="p-2 hover:bg-gray-100 cursor-pointer"
-                          onClick={() => {
-                            setName(customerName);
-                            setShowNameDropdown(false);
-                          }}
-                        >
-                          {customerName}
-                        </div>
-                      ))}
-                  </div>
-                )}
+      <Modal
+        isOpen={open}
+        onClose={() => {
+          setOpen(false);
+          resetForm();
+        }}
+        title="Add Cash Receipt"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="relative">
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">
+              Customer Name *
+            </label>
+            <input
+              type="text"
+              placeholder="Select customer from dropdown"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setShowNameDropdown(true);
+              }}
+              onFocus={() => setShowNameDropdown(true)}
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              required
+            />
+            {showNameDropdown && customers.length > 0 && (
+              <div className="absolute z-10 w-full bg-white dark:bg-gray-800 border dark:border-gray-600 rounded-lg shadow-lg max-h-40 overflow-y-auto mt-1">
+                {customers
+                  .filter(c => c.name?.toLowerCase().includes(name.toLowerCase()))
+                  .map((customer) => (
+                    <div
+                      key={customer.id}
+                      className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer dark:text-white"
+                      onClick={() => handleCustomerSelect(customer)}
+                    >
+                      {customer.name} {customer.phone ? `(${customer.phone})` : ''}
+                    </div>
+                  ))}
               </div>
-
-              <input
-                type="text"
-                placeholder="Purpose"
-                value={purpose}
-                onChange={(e) => setPurpose(e.target.value)}
-                className="w-full border p-2 rounded"
-                required
-              />
-
-              <select
-                value={paymentType}
-                onChange={(e) => setPaymentType(e.target.value)}
-                className="w-full border p-2 rounded"
-              >
-                <option value="Offline">Offline</option>
-                <option value="Online">Online</option>
-              </select>
-
-              <input
-                type="number"
-                placeholder="Amount (₹)"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                className="w-full border p-2 rounded"
-                required
-              />
-
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value)}
-                className="w-full border p-2 rounded"
-              >
-                <option value="Not Deposited">Not Deposited</option>
-                <option value="Deposited">Deposited</option>
-              </select>
-
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="w-full border p-2 rounded"
-                required
-              />
-
-              <button
-                type="submit"
-                className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700"
-              >
-                Save Receipt
-              </button>
-            </form>
+            )}
           </div>
-        </div>
-      )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Purpose *</label>
+            <input
+              type="text"
+              placeholder="Payment for Invoice"
+              value={purpose}
+              onChange={(e) => setPurpose(e.target.value)}
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Payment Type *</label>
+            <select
+              value={paymentType}
+              onChange={(e) => setPaymentType(e.target.value)}
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="Cash">Cash</option>
+              <option value="Bank Transfer">Bank Transfer</option>
+              <option value="Cheque">Cheque</option>
+              <option value="UPI">UPI</option>
+              <option value="Card">Card</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Amount (₹) *</label>
+            <input
+              type="number"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              step="0.01"
+              min="0"
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Status *</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="Received">Received</option>
+              <option value="Pending">Pending</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1 dark:text-gray-300">Date *</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full border p-2 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              required
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setOpen(false);
+                resetForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button type="submit">Save Receipt</Button>
+          </div>
+        </form>
+      </Modal>
     </Card>
   );
 };
