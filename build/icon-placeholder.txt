@@ -1,0 +1,25 @@
+# Simple text-based icon placeholder for Malwa CRM
+# This is a placeholder - in production, use a proper .ico file
+
+# For a professional installer, create these icon files:
+# - icon.ico (256x256, 128x128, 64x64, 48x48, 32x32, 16x16)
+# - header.bmp (150x57 pixels for NSIS header)
+# - wizard.bmp (164x314 pixels for NSIS wizard)
+
+# Recommended icon creation tools:
+# - GIMP (free)
+# - Paint.NET (free)
+# - Adobe Photoshop
+# - Online converters (png2ico.com)
+
+# Icon specifications for Malwa CRM:
+# - Primary colors: Blue (#2563eb), Red (#dc2626), Gray (#6b7280)
+# - Style: Modern, professional, business-oriented
+# - Elements: CRM/business symbols (charts, people, documents)
+# - Format: ICO format with multiple sizes embedded
+
+# To replace this placeholder:
+# 1. Create a professional logo/icon design
+# 2. Generate .ico file with multiple sizes
+# 3. Replace this file with the actual icon.ico
+# 4. Update installer graphics (header.bmp, wizard.bmp)

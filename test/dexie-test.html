@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dexie Database Tests - Malwa CRM</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      padding: 20px;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .content {
+      padding: 30px;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+
+    button {
+      flex: 1;
+      padding: 15px 30px;
+      font-size: 16px;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(245, 87, 108, 0.4);
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+      color: white;
+    }
+
+    .btn-secondary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 12px rgba(79, 172, 254, 0.4);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+
+    .status {
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
+    .status.idle {
+      background: #f3f4f6;
+      color: #6b7280;
+    }
+
+    .status.running {
+      background: #dbeafe;
+      color: #1e40af;
+      animation: pulse 2s infinite;
+    }
+
+    .status.success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-bottom: 30px;
+    }
+
+    .summary-card {
+      padding: 20px;
+      border-radius: 8px;
+      text-align: center;
+    }
+
+    .summary-card.total {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .summary-card.passed {
+      background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+      color: #065f46;
+    }
+
+    .summary-card.failed {
+      background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+      color: #991b1b;
+    }
+
+    .summary-card h3 {
+      font-size: 32px;
+      margin-bottom: 5px;
+    }
+
+    .summary-card p {
+      font-size: 14px;
+      opacity: 0.9;
+    }
+
+    .results {
+      background: #f9fafb;
+      border-radius: 8px;
+      padding: 20px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .results h3 {
+      margin-bottom: 15px;
+      color: #374151;
+    }
+
+    .test-result {
+      padding: 12px 15px;
+      margin-bottom: 10px;
+      border-radius: 6px;
+      background: white;
+      border-left: 4px solid #d1d5db;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+    }
+
+    .test-result.pass {
+      border-left-color: #10b981;
+    }
+
+    .test-result.fail {
+      border-left-color: #ef4444;
+    }
+
+    .test-result .icon {
+      font-size: 18px;
+    }
+
+    .db-info {
+      background: #f3f4f6;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 20px;
+      font-size: 13px;
+      font-family: 'Courier New', monospace;
+      color: #4b5563;
+    }
+
+    .db-info strong {
+      color: #1f2937;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #6b7280;
+    }
+
+    .spinner {
+      border: 3px solid #f3f4f6;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 10px;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🧪 Dexie Database Tests</h1>
+      <p>Malwa CRM - IndexedDB Testing Suite</p>
+    </div>
+
+    <div class="content">
+      <div class="button-group">
+        <button id="runTests" class="btn-primary">▶️ Run Tests</button>
+        <button id="clearDB" class="btn-danger">🗑️ Clear Database</button>
+        <button id="checkStatus" class="btn-secondary">📊 Check DB Status</button>
+      </div>
+
+      <div id="status" class="status idle">
+        Ready to run tests. Click "Run Tests" to begin.
+      </div>
+
+      <div id="summary" class="summary" style="display: none;">
+        <div class="summary-card total">
+          <h3 id="totalTests">0</h3>
+          <p>Total Tests</p>
+        </div>
+        <div class="summary-card passed">
+          <h3 id="passedTests">0</h3>
+          <p>Passed</p>
+        </div>
+        <div class="summary-card failed">
+          <h3 id="failedTests">0</h3>
+          <p>Failed</p>
+        </div>
+      </div>
+
+      <div class="results" id="results" style="display: none;">
+        <h3>Test Results</h3>
+        <div id="resultsList"></div>
+      </div>
+
+      <div id="dbInfo" class="db-info" style="display: none;"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { db, initDB, checkDatabaseStatus, clearDatabase } from './src/db/dexie.js';
+    import { dbOperations, bulkPut, bulkGet, nextSequence, generateCode, generateUUID } from './src/lib/db.js';
+
+    const statusEl = document.getElementById('status');
+    const summaryEl = document.getElementById('summary');
+    const resultsEl = document.getElementById('results');
+    const resultsListEl = document.getElementById('resultsList');
+    const dbInfoEl = document.getElementById('dbInfo');
+    const runTestsBtn = document.getElementById('runTests');
+    const clearDBBtn = document.getElementById('clearDB');
+    const checkStatusBtn = document.getElementById('checkStatus');
+
+    let totalTests = 0;
+    let passedTests = 0;
+
+    const updateStatus = (message, type = 'idle') => {
+      statusEl.className = `status ${type}`;
+      statusEl.textContent = message;
+    };
+
+    const addResult = (passed, message) => {
+      totalTests++;
+      if (passed) passedTests++;
+
+      const resultDiv = document.createElement('div');
+      resultDiv.className = `test-result ${passed ? 'pass' : 'fail'}`;
+      resultDiv.innerHTML = `
+        <span class="icon">${passed ? '✅' : '❌'}</span>
+        <span>${message}</span>
+      `;
+      resultsListEl.appendChild(resultDiv);
+
+      document.getElementById('totalTests').textContent = totalTests;
+      document.getElementById('passedTests').textContent = passedTests;
+      document.getElementById('failedTests').textContent = totalTests - passedTests;
+    };
+
+    const assert = (condition, message) => {
+      addResult(condition, message);
+      if (!condition) throw new Error(message);
+    };
+
+    const runAllTests = async () => {
+      totalTests = 0;
+      passedTests = 0;
+      resultsListEl.innerHTML = '';
+      summaryEl.style.display = 'grid';
+      resultsEl.style.display = 'block';
+      runTestsBtn.disabled = true;
+
+      updateStatus('🔄 Running tests...', 'running');
+
+      try {
+        // Initialize database
+        await initDB();
+        assert(db.isOpen(), 'Database initialized successfully');
+
+        // Basic CRUD
+        const testId = generateUUID();
+        const customer = await dbOperations.insert('customers', {
+          id: testId,
+          name: 'Test Customer',
+          email: 'test@test.com',
+          phone: '1234567890'
+        });
+        assert(customer.id === testId, 'Insert: Customer created with correct ID');
+
+        const retrieved = await dbOperations.getById('customers', testId);
+        assert(retrieved !== null, 'Get: Customer retrieved successfully');
+
+        const updated = await dbOperations.update('customers', testId, { name: 'Updated Name' });
+        assert(updated.name === 'Updated Name', 'Update: Customer name updated');
+
+        // Index queries
+        const byEmail = await dbOperations.getByIndex('customers', 'email', 'test@test.com');
+        assert(byEmail.length > 0, 'Index Query: Found customer by email');
+
+        // Bulk operations
+        const vendors = [
+          { id: generateUUID(), name: 'V1', code: 'V-001', serviceType: 'mechanic' },
+          { id: generateUUID(), name: 'V2', code: 'V-002', serviceType: 'painter' }
+        ];
+        await bulkPut('vendors', vendors);
+        const vendorIds = vendors.map(v => v.id);
+        const bulkResult = await bulkGet('vendors', vendorIds);
+        assert(bulkResult.length === 2, 'Bulk Operations: Inserted and retrieved 2 vendors');
+
+        // Sequences
+        const seq1 = await nextSequence('TEST');
+        const seq2 = await nextSequence('TEST');
+        assert(seq2 === seq1 + 1, 'Sequences: Auto-increment working');
+
+        const code = await generateCode('TST', 3);
+        assert(code.match(/TST-\d{3}/), 'Code Generation: Format correct');
+
+        // Cleanup
+        await dbOperations.delete('customers', testId);
+        const deleted = await dbOperations.getById('customers', testId);
+        assert(deleted === null, 'Delete: Customer deleted successfully');
+
+        await dbOperations.clear('vendors');
+        const vendorCount = await dbOperations.count('vendors');
+        assert(vendorCount === 0, 'Clear: Vendors table cleared');
+
+        updateStatus(`✅ All tests passed! (${passedTests}/${totalTests})`, 'success');
+      } catch (error) {
+        console.error(error);
+        updateStatus(`❌ Tests failed: ${error.message}`, 'error');
+      } finally {
+        runTestsBtn.disabled = false;
+      }
+    };
+
+    const clearDatabaseHandler = async () => {
+      if (!confirm('Are you sure you want to clear the entire database? This will delete all data!')) {
+        return;
+      }
+
+      clearDBBtn.disabled = true;
+      updateStatus('🗑️ Clearing database...', 'running');
+
+      try {
+        await clearDatabase();
+        updateStatus('✅ Database cleared successfully', 'success');
+        dbInfoEl.style.display = 'none';
+        summaryEl.style.display = 'none';
+        resultsEl.style.display = 'none';
+      } catch (error) {
+        updateStatus(`❌ Failed to clear database: ${error.message}`, 'error');
+      } finally {
+        clearDBBtn.disabled = false;
+      }
+    };
+
+    const checkDBStatus = async () => {
+      checkStatusBtn.disabled = true;
+      updateStatus('📊 Checking database status...', 'running');
+
+      try {
+        const status = await checkDatabaseStatus();
+        dbInfoEl.style.display = 'block';
+        dbInfoEl.innerHTML = `
+          <strong>Database Name:</strong> ${status.name || 'N/A'}<br>
+          <strong>Version:</strong> ${status.version || 'N/A'}<br>
+          <strong>Expected Version:</strong> ${status.expectedVersion}<br>
+          <strong>Status:</strong> ${status.exists ? 'Exists' : 'Not found'}<br>
+          <strong>Open:</strong> ${status.isOpen ? 'Yes' : 'No'}<br>
+          <strong>Stores:</strong> ${status.stores ? status.stores.length : 0} stores<br>
+          ${status.stores ? `<strong>Store Names:</strong> ${status.stores.join(', ')}` : ''}
+        `;
+        updateStatus('✅ Database status checked', 'success');
+      } catch (error) {
+        updateStatus(`❌ Failed to check status: ${error.message}`, 'error');
+      } finally {
+        checkStatusBtn.disabled = false;
+      }
+    };
+
+    runTestsBtn.addEventListener('click', runAllTests);
+    clearDBBtn.addEventListener('click', clearDatabaseHandler);
+    checkStatusBtn.addEventListener('click', checkDBStatus);
+
+    // Auto-check status on load
+    window.addEventListener('load', () => {
+      setTimeout(checkDBStatus, 500);
+    });
+  </script>
+</body>
+</html>

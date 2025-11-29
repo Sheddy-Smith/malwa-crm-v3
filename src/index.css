@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Dark mode root styles */
+.dark {
+  background-color: #0A0A0A;
+  color: #FFFFFF;
+}
+
+.dark body {
+  background-color: #0A0A0A;
+  color: #FFFFFF;
+}
+
+/* Shine animation for sidebar */
+@keyframes shine {
+  0% {
+    transform: translateX(-100%) rotate(25deg);
+  }
+  100% {
+    transform: translateX(400%) rotate(25deg);
+  }
+}
+
+.animate-shine {
+  animation: shine 3s ease-in-out infinite;
+}
+
+/* Custom scrollbar for better aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  @apply dark:bg-gray-800;
+}
+::-webkit-scrollbar-thumb {
+  background: #ccc;
+  border-radius: 10px;
+  @apply dark:bg-gray-600;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #aaa;
+   @apply dark:bg-gray-500;
+}

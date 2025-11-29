@@ -1,0 +1,74 @@
+﻿{
+  "appId": "com.malwatrolley.crm",
+  "productName": "Malwa CRM",
+  "copyright": "Copyright © 2025 Malwa Trolley. All rights reserved.",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json",
+    "LICENSE",
+    "!node_modules/**/*",
+    "!src/**/*",
+    "!docs/**/*",
+    "!test/**/*",
+    "!*.md",
+    "!.git*",
+    "!.eslint*",
+    "!.prettier*",
+    "!tsconfig.json",
+    "!vite.config.js",
+    "!tailwind.config.js",
+    "!postcss.config.js"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.cjs"
+  },
+  "extraFiles": [
+    {
+      "from": "create-data-directories.bat",
+      "to": "create-data-directories.bat"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.png",
+    "requestedExecutionLevel": "asInvoker",
+    "artifactName": "Malwa-CRM-Setup-${version}-x64.${ext}",
+    "publisherName": "Malwa Trolley"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": "always",
+    "createStartMenuShortcut": true,
+    "menuCategory": "Business",
+    "shortcutName": "Malwa CRM",
+    "artifactName": "Malwa-CRM-Setup-${version}-x64.${ext}",
+    "deleteAppDataOnUninstall": false,
+    "runAfterFinish": true,
+    "license": "LICENSE",
+    "warningsAsErrors": false,
+    "displayLanguageSelector": false,
+    "installerLanguages": ["en_US"],
+    "language": "1033",
+    "perMachine": false,
+    "multiLanguageInstaller": false,
+    "include": "build/installer.nsh"
+  },
+  "portable": {
+    "artifactName": "Malwa-CRM-Portable-${version}-${arch}.${ext}",
+    "requestExecutionLevel": "user"
+  },
+  "compression": "maximum",
+  "publish": null
+}
